@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HSK Classroom — Đăng nhập</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body class="auth-page">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="auth-logo-icon">汉</div>
+      <div class="auth-logo-text">
+        <strong>HSK Classroom</strong>
+        <span>Hệ thống luyện từ vựng</span>
+      </div>
+    </div>
+
+    <hr class="auth-divider" />
+
+    <div id="msg" class="msg" style="display:none;margin-bottom:14px;"></div>
+
+    <div class="field">
+      <label>Tên đăng nhập</label>
+      <input type="text" id="login-username" placeholder="Tên đăng nhập hoặc email giáo viên" />
+    </div>
+    <div class="field">
+      <label>Mật khẩu</label>
+      <div style="position:relative">
+        <input type="password" id="login-password" placeholder="••••••••" />
+        <button onclick="togglePass()"
+          style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);padding:0;font-size:16px;width:auto">👁</button>
+      </div>
+    </div>
+    <button class="btn-primary" style="width:100%;justify-content:center;margin-top:4px;" onclick="login()">Đăng
+      nhập</button>
+
+    <hr class="auth-divider" />
+    <div class="auth-contact">
+      <p>Cần hỗ trợ? Liên hệ giáo viên</p>
+      <div class="auth-contact-links">
+        <a href="https://zalo.me/0378797704" target="_blank" rel="noopener" class="contact-link zalo">
+          <svg width="15" height="15" viewBox="0 0 48 48" fill="none">
+            <rect width="48" height="48" rx="10" fill="#fff" fill-opacity=".2" />
+            <path
+              d="M24 6C14.06 6 6 13.16 6 22c0 5.1 2.7 9.62 6.9 12.6L11 42l7.8-3.9C20.5 38.7 22.2 39 24 39c9.94 0 18-7.16 18-17S33.94 6 24 6z"
+              fill="#fff" />
+          </svg>
+          Zalo
+        </a>
+        <a href="https://www.facebook.com/nguyen.trinh.720740" target="_blank" rel="noopener" class="contact-link fb">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="white">
+            <path
+              d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.41c0-3.025 1.792-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.885v2.27h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z" />
+          </svg>
+          Facebook
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase.js"></script>
+  <script>
+    (async () => {
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) await redirectByRole(session.user.id);
+    })();
+
+    function togglePass() {
+      const inp = document.getElementById('login-password');
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+    }
+
+    async function redirectByRole(uid) {
+      const { data } = await sb.from('profiles').select('role').eq('id', uid).single();
+      if (!data) { showMsg('Không tìm thấy tài khoản.'); return; }
+      if (data.role === 'teacher') window.location.replace('teacher.html');
+      else window.location.replace('student.html');
+    }
+
+    function showMsg(text) {
+      const el = document.getElementById('msg');
+      el.textContent = text; el.className = 'msg error'; el.style.display = 'block';
+    }
+
+    async function login() {
+      const raw = document.getElementById('login-username').value.trim();
+      const pw = document.getElementById('login-password').value;
+      if (!raw || !pw) return showMsg('Vui lòng nhập đầy đủ thông tin.');
+      const btn = document.querySelector('.btn-primary');
+      btn.textContent = 'Đang đăng nhập...'; btn.disabled = true;
+      const email = raw.includes('@') ? raw : raw + '@example.com';
+      const { data, error } = await sb.auth.signInWithPassword({ email, password: pw });
+      if (error) { showMsg('Sai tên đăng nhập hoặc mật khẩu.'); btn.textContent = 'Đăng nhập'; btn.disabled = false; return; }
+      await redirectByRole(data.user.id);
+    }
+
+    document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+  </script>
+</body>
+
+</html>

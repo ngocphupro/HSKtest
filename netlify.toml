@@ -1,0 +1,8 @@
+[build]
+  publish = "hsk-output"
+
+# Optional: keep root URL explicit for static hosting
+[[redirects]]
+  from = "/"
+  to = "/index.html"
+  status = 200

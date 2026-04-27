@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HSK Classroom — Học sinh</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<div class="mobile-overlay" id="mobile-overlay" onclick="closeSidebar()"></div>
+<button class="mobile-menu-btn" onclick="openSidebar()">☰</button>
+
+<div class="app-shell">
+
+  <!-- ══════ SIDEBAR ══════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">汉</div>
+      <div class="logo-text">
+        <strong>HSK Classroom</strong>
+        <span>Hệ thống luyện từ vựng</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Hành trình</div>
+      <button class="nav-item active" onclick="showPanel('hsk-level')">
+        <span class="nav-icon">🎯</span> Cấp độ HSK
+      </button>
+      <button class="nav-item" onclick="showPanel('assigned')">
+        <span class="nav-icon">📝</span> Bài được giao
+      </button>
+      <button class="nav-item" onclick="showPanel('history')">
+        <span class="nav-icon">📊</span> Lịch sử điểm
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Lớp học</div>
+      <button class="nav-item" onclick="showPanel('lessons')">
+        <span class="nav-icon">📖</span> Bài học lớp
+      </button>
+      <button class="nav-item" onclick="showPanel('announcements')">
+        <span class="nav-icon">📢</span> Thông báo
+        <span id="ann-badge" class="nav-badge" style="display:none"></span>
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Rèn luyện</div>
+      <button class="nav-item" onclick="showPanel('practice')">
+        <span class="nav-icon">🏋</span> Tự luyện từ
+      </button>
+      <button class="nav-item" onclick="showPanel('sentences')">
+        <span class="nav-icon">💬</span> Luyện câu
+      </button>
+      <button class="nav-item" onclick="showPanel('vocab')">
+        <span class="nav-icon">📖</span> Từ điển HSK
+      </button>
+      <button class="nav-item" onclick="showPanel('leaderboard')">
+        <span class="nav-icon">🏆</span> Xếp hạng
+      </button>
+    </div>
+
+    <div class="sidebar-spacer"></div>
+
+    <div class="sidebar-user">
+      <div class="user-avatar" id="stu-avatar" style="background:#2A5FA5;">NA</div>
+      <div class="sidebar-user-info">
+        <strong id="stu-name">Học sinh</strong>
+        <span id="stu-level-label">HSK1</span>
+      </div>
+      <button class="btn-role-switch" onclick="logout()" title="Đăng xuất">
+        <span style="font-size:14px">⇄</span>
+        <span>Thoát</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ══════ MAIN ══════ -->
+  <main class="main-content">
+
+    <!-- ── HSK LEVEL ── -->
+    <div id="panel-hsk-level" class="tab-panel active">
+      <!-- Announcement Quick View -->
+      <div id="ann-quick-view" style="display:none;margin-bottom:24px;"></div>
+
+      <div class="page-header">
+        <h1>Cấp độ HSK của tôi</h1>
+        <p id="hsk-subtitle">Hoàn thành HSK1 để mở khoá HSK2</p>
+      </div>
+      <div id="hsk-level-content"><p class="loading">Đang tải...</p></div>
+    </div>
+
+    <!-- ── LESSONS ── -->
+    <div id="panel-lessons" class="tab-panel">
+      <div class="page-header">
+        <h1>Bài học theo lớp</h1>
+        <p>Nội dung học tập được giáo viên chỉ định</p>
+      </div>
+      <div id="lessons-list-stu" class="quiz-card-list"><p class="loading">Đang tải...</p></div>
+    </div>
+
+    <!-- ── ASSIGNED ── -->
+    <div id="panel-assigned" class="tab-panel">
+      <div class="page-header">
+        <h1>Bài được giao</h1>
+        <p>Quiz giáo viên giao cho bạn</p>
+      </div>
+      <div class="quiz-card-list" id="assigned-list"><p class="loading">Đang tải...</p></div>
+    </div>
+
+    <!-- ── PRACTICE ── -->
+    <div id="panel-practice" class="tab-panel">
+      <div class="page-header">
+        <h1>Tự luyện</h1>
+        <p>Luyện tập theo ý muốn</p>
+      </div>
+      <div class="quiz-wrap">
+        <div class="mode-toggle">
+          <button class="mode-btn active" onclick="selectMode(this,'meaning')">Trắc nghiệm</button>
+          <button class="mode-btn" onclick="selectMode(this,'flashcard')">Flashcards</button>
+        </div>
+        <div id="practice-area"><p class="empty-state"><span class="empty-icon">🏋</span>Bấm bắt đầu để luyện tập</p></div>
+        <div id="practice-idle" style="text-align:center;margin-top:16px;">
+          <button class="btn-primary" style="width:100%;justify-content:center;" onclick="startPractice()">▶ Bắt đầu luyện tập</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SHORT SENTENCES ── -->
+    <div id="panel-sentences" class="tab-panel">
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1>Luyện câu ngắn</h1>
+            <p>Nghe và học các mẫu câu thông dụng</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn-primary" id="sentence-quiz-btn" style="background:var(--blue);box-shadow:none;">📝 Dịch câu</button>
+            <button class="btn-primary" id="sentence-word-quiz-btn">🧩 Điền & Xếp từ</button>
+          </div>
+        </div>
+      </div>
+      <div class="search-wrap" style="display:flex;gap:8px;">
+        <div style="flex:1;position:relative;">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-sentences" placeholder="Tìm câu..."/>
+        </div>
+        <select id="filter-sent-stu-level" style="width:110px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface);color:var(--text);outline:none;">
+          <option value="">Mọi cấp độ</option>
+          <option value="1">HSK 1</option>
+          <option value="2">HSK 2</option>
+          <option value="3">HSK 3</option>
+          <option value="4">HSK 4</option>
+        </select>
+        <select id="filter-sent-stu-cat" style="width:140px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface);color:var(--text);outline:none;">
+          <option value="">Tất cả chủ đề</option>
+          <option value="Chào hỏi">Chào hỏi</option>
+          <option value="Gia đình">Gia đình</option>
+          <option value="Ăn uống">Ăn uống</option>
+          <option value="Trường học">Trường học</option>
+          <option value="Giao tiếp">Giao tiếp</option>
+          <option value="Thời gian">Thời gian</option>
+          <option value="Địa điểm">Địa điểm</option>
+          <option value="Công việc">Công việc</option>
+          <option value="Giải trí">Giải trí</option>
+          <option value="Động vật">Động vật</option>
+          <option value="Giao thông">Giao thông</option>
+          <option value="Sức khỏe">Sức khỏe</option>
+          <option value="Cảm xúc">Cảm xúc</option>
+          <option value="Số lượng">Số lượng</option>
+          <option value="Tính chất">Tính chất</option>
+          <option value="Mua sắm">Mua sắm</option>
+          <option value="Thời tiết">Thời tiết</option>
+          <option value="Khác">Khác</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Câu</th><th>Nghĩa</th><th>Cấp độ</th><th>Chủ đề</th></tr>
+          </thead>
+          <tbody id="sentences-list-stu"><tr><td colspan="4" class="loading">Đang tải...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+
+
+    <!-- ── VOCAB ── -->
+    <div id="panel-vocab" class="tab-panel">
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1>Từ điển HSK</h1>
+            <p>Tra cứu và ôn tập từ vựng chuẩn HSK 1-4</p>
+          </div>
+          <button class="btn-primary" id="vocab-quiz-btn">📝 Làm trắc nghiệm</button>
+        </div>
+      </div>
+      <div class="search-wrap" style="display:flex;gap:8px;">
+        <div style="flex:1;position:relative;">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-vocab" placeholder="Tìm từ vựng..." />
+        </div>
+        <select id="filter-vocab-level" style="width:110px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface);color:var(--text);outline:none;">
+          <option value="">Mọi cấp độ</option>
+          <option value="1">HSK 1</option>
+          <option value="2">HSK 2</option>
+          <option value="3">HSK 3</option>
+          <option value="4">HSK 4</option>
+        </select>
+        <select id="filter-vocab-cat" style="width:160px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface);color:var(--text);outline:none;">
+          <option value="">Tất cả chủ đề</option>
+          <option value="Chào hỏi">Chào hỏi</option>
+          <option value="Gia đình">Gia đình</option>
+          <option value="Ăn uống">Ăn uống</option>
+          <option value="Trường học">Trường học</option>
+          <option value="Thời gian">Thời gian</option>
+          <option value="Địa điểm">Địa điểm</option>
+          <option value="Công việc">Công việc</option>
+          <option value="Giao tiếp">Giao tiếp</option>
+          <option value="Giải trí">Giải trí</option>
+          <option value="Động vật">Động vật</option>
+          <option value="Giao thông">Giao thông</option>
+          <option value="Sức khỏe">Sức khỏe</option>
+          <option value="Cảm xúc">Cảm xúc</option>
+          <option value="Số lượng">Số lượng</option>
+          <option value="Tính chất">Tính chất</option>
+          <option value="Mua sắm">Mua sắm</option>
+          <option value="Thời tiết">Thời tiết</option>
+          <option value="Khác">Khác</option>
+        </select>
+      </div>
+      <div id="vocab-content-grouped">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Hán tự</th><th>Pinyin</th><th>Nghĩa</th><th>Cấp độ</th><th>Chủ đề</th></tr>
+            </thead>
+            <tbody id="vocab-list"><tr><td colspan="5" class="loading">Đang tải...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HISTORY ── -->
+    <div id="panel-history" class="tab-panel">
+      <div class="page-header">
+        <h1>Lịch sử điểm</h1>
+        <p>Kết quả các bài quiz đã làm</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Bài quiz</th><th>Điểm</th><th>Tỷ lệ</th><th>Ngày làm</th></tr>
+          </thead>
+          <tbody id="history-list"><tr><td colspan="4" class="loading">Đang tải...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── LEADERBOARD ── -->
+    <div id="panel-leaderboard" class="tab-panel">
+      <div class="page-header">
+        <h1>Bảng xếp hạng</h1>
+        <p>Top 10 học sinh xuất sắc nhất</p>
+      </div>
+      <div id="leaderboard-list">
+        <p class="loading">Đang tải...</p>
+      </div>
+    </div>
+
+    <!-- ── ANNOUNCEMENTS ── -->
+    <div id="panel-announcements" class="tab-panel">
+      <div class="page-header">
+        <h1>Thông báo</h1>
+        <p>Tin nhắn từ giáo viên</p>
+      </div>
+      <div id="announcement-list" class="quiz-card-list"><p class="loading">Đang tải...</p></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ══════ QUIZ OVERLAY (làm bài) ══════ -->
+<div class="hsk-overlay" id="quiz-overlay">
+  <div class="hsk-overlay-inner" style="max-width:600px">
+    <div class="overlay-topbar">
+      <strong id="quiz-overlay-title">Quiz</strong>
+      <button class="btn-ghost btn-sm" onclick="exitQuizOverlay()">✕ Thoát</button>
+    </div>
+    <div class="quiz-progress-bar"><div class="quiz-progress-fill" id="quiz-prog"></div></div>
+    <div class="timer-bar-wrap" id="timer-wrap" style="display:none">
+      <div class="timer-bar-header">
+        <span>Thời gian còn lại</span>
+        <span class="timer-val" id="timer-val">00:00</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill blue" id="timer-bar" style="width:100%"></div>
+      </div>
+    </div>
+    <div id="quiz-area"></div>
+  </div>
+</div>
+
+<!-- ══════ HSK REVIEW OVERLAY ══════ -->
+<div class="hsk-overlay" id="hsk-review-overlay">
+  <div class="hsk-overlay-inner">
+    <div class="overlay-topbar">
+      <strong id="hsk-review-title">Ôn tập 100%</strong>
+      <button class="btn-ghost btn-sm" onclick="exitHskReview()">✕ Thoát</button>
+    </div>
+    <div class="quiz-progress-bar"><div class="quiz-progress-fill" id="hsk-review-prog"></div></div>
+    <div id="hsk-review-area"></div>
+  </div>
+</div>
+
+<!-- ══════ PENDING OVERLAY ══════ -->
+<div class="hsk-overlay" id="hsk-pending-overlay">
+  <div class="hsk-overlay-inner" style="display:flex;align-items:center;justify-content:center;min-height:80vh;">
+    <div style="text-align:center;max-width:380px;">
+      <div style="font-size:60px;margin-bottom:16px;">⏳</div>
+      <h3 style="font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:10px;">Đang chờ giáo viên duyệt</h3>
+      <p style="color:var(--text2);margin-bottom:24px;">Bạn đã gửi yêu cầu lên <strong id="pending-level-name">HSK2</strong>. Giáo viên sẽ xem xét sớm nhất có thể.</p>
+      <button class="btn-ghost" onclick="document.getElementById('hsk-pending-overlay').classList.remove('open')">← Quay lại</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── VOCAB QUIZ OVERLAY (Like Sentence Quiz) ── -->
+<div class="hsk-overlay" id="vocab-quiz-overlay">
+  <div class="hsk-overlay-inner">
+    <div class="overlay-topbar">
+      <strong>Trắc nghiệm Từ vựng</strong>
+      <button class="btn-ghost btn-sm" onclick="exitVocabQuiz()">✕ Thoát</button>
+    </div>
+    <div class="quiz-progress-bar"><div class="quiz-progress-fill" id="vq-prog"></div></div>
+    <div id="vq-area" style="padding:20px;"></div>
+  </div>
+</div>
+
+<div id="toast-msg"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase.js"></script>
+<script src="student.js"></script>
+</body>
+</html>

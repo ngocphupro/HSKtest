@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HSK Classroom — Giáo viên</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<!-- Mobile menu overlay -->
+<div class="mobile-overlay" id="mobile-overlay" onclick="closeSidebar()"></div>
+<button class="mobile-menu-btn" onclick="openSidebar()">☰</button>
+
+<div class="app-shell">
+
+  <!-- ══════ SIDEBAR ══════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">汉</div>
+      <div class="logo-text">
+        <strong>HSK Classroom</strong>
+        <span>Hệ thống luyện từ vựng</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Học sinh</div>
+      <button class="nav-item active" onclick="showPanel('students')">
+        <span class="nav-icon">👤</span> Danh sách
+      </button>
+      <button class="nav-item" id="nav-hsk-approve" onclick="showPanel('hsk-approve')">
+        <span class="nav-icon">🎓</span> Cấp quyền HSK
+        <span class="nav-badge" id="hsk-badge" style="display:none">0</span>
+      </button>
+      <button class="nav-item" onclick="showPanel('groups')">
+        <span class="nav-icon">👥</span> Nhóm học
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Giảng dạy</div>
+      <button class="nav-item" onclick="showPanel('classes')">
+        <span class="nav-icon">🏫</span> Lớp học
+      </button>
+      <button class="nav-item" onclick="showPanel('quizzes')">
+        <span class="nav-icon">✏️</span> Bài quiz
+      </button>
+      <button class="nav-item" onclick="showPanel('vocab')">
+        <span class="nav-icon">📖</span> Từ vựng
+      </button>
+      <button class="nav-item" onclick="showPanel('sentences')">
+        <span class="nav-icon">💬</span> Câu ngắn
+      </button>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Hệ thống</div>
+      <button class="nav-item" onclick="showPanel('announcements')">
+        <span class="nav-icon">📢</span> Thông báo
+      </button>
+      <button class="nav-item" onclick="showPanel('results')">
+        <span class="nav-icon">📊</span> Kết quả học
+      </button>
+    </div>
+
+    <div class="sidebar-spacer"></div>
+
+    <div class="sidebar-user">
+      <div class="user-avatar" id="teacher-avatar" style="background:#C84B31;">NT</div>
+      <div class="sidebar-user-info">
+        <strong id="teacher-name">Giáo viên</strong>
+        <span>Giáo viên</span>
+      </div>
+      <button class="btn-role-switch" onclick="logout()" title="Đăng xuất">
+        <span style="font-size:14px">⇄</span>
+        <span>Thoát</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ══════ MAIN ══════ -->
+  <main class="main-content">
+
+    <!-- ── STUDENTS ── -->
+    <div id="panel-students" class="tab-panel active">
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1>Học sinh</h1>
+            <p>Phân công cấp độ HSK</p>
+          </div>
+          <button class="btn-primary" onclick="openModal('modal-add-student')">＋ Thêm học sinh</button>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:12px;">
+        <div class="stat-card c-default"><div class="stat-value" id="stat-total">—</div><div class="stat-label">Tổng học sinh</div></div>
+        <div class="stat-card c-warn"><div class="stat-value" id="stat-pending">—</div><div class="stat-label">Chờ cấp quyền</div></div>
+      </div>
+      <div class="stat-grid" id="student-stats" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+        <div class="stat-card c-good"><div class="stat-value" id="stat-hsk1">—</div><div class="stat-label">Đang học HSK1</div></div>
+        <div class="stat-card c-info"><div class="stat-value" id="stat-hsk2">—</div><div class="stat-label">Đang học HSK2</div></div>
+        <div class="stat-card c-purple"><div class="stat-value" id="stat-hsk3">—</div><div class="stat-label">Đang học HSK3</div></div>
+        <div class="stat-card c-warn"><div class="stat-value" id="stat-hsk4">—</div><div class="stat-label">Đang học HSK4</div></div>
+        <div class="stat-card c-default"><div class="stat-value" id="stat-hsk5">—</div><div class="stat-label">Đang học HSK5</div></div>
+        <div class="stat-card c-good"><div class="stat-value" id="stat-hsk6">—</div><div class="stat-label">Đang học HSK6</div></div>
+      </div>
+
+      <div class="section-row">
+        <h3>Danh sách học sinh</h3>
+        <div style="display:flex;gap:8px;">
+          <select id="filter-hsk" onchange="filterStudents()" style="padding:7px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface);color:var(--text);outline:none;">
+            <option value="">Tất cả cấp độ</option>
+            <option value="1">HSK 1</option>
+            <option value="2">HSK 2</option>
+            <option value="3">HSK 3</option>
+            <option value="4">HSK 4</option>
+            <option value="5">HSK 5</option>
+            <option value="6">HSK 6</option>
+          </select>
+        </div>
+      </div>
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-students" placeholder="Tìm học sinh theo tên..." oninput="filterStudents()"/>
+      </div>
+      <div class="student-grid" id="student-list"><p class="loading">Đang tải...</p></div>
+    </div>
+
+    <!-- ── HSK APPROVE ── -->
+    <div id="panel-hsk-approve" class="tab-panel">
+      <div class="page-header">
+        <h1>Cấp quyền HSK</h1>
+        <p>Duyệt yêu cầu nâng cấp độ của học sinh</p>
+      </div>
+      <div id="hsk-approve-list"><p class="loading">Đang tải...</p></div>
+    </div>
+
+    <!-- ── GROUPS ── -->
+    <div id="panel-groups" class="tab-panel">
+      <div class="page-header">
+        <div class="page-header-row">
+          <div><h1>Nhóm</h1><p>Quản lý nhóm học sinh</p></div>
+          <button class="btn-primary" onclick="openModal('modal-create-group')">＋ Tạo nhóm</button>
+        </div>
+      </div>
+      <div class="card-grid" id="group-list"><p class="loading">Đang tải...</p></div>
+    </div>
+
+    <!-- ── CLASSES ── -->
+    <div id="panel-classes" class="tab-panel">
+      <div class="page-header">
+        <div class="page-header-row">
+          <div><h1>Lớp học</h1><p>Quản lý lớp và bài học</p></div>
+          <button class="btn-primary" onclick="openModal('modal-create-class')">＋ Tạo lớp</button>
+        </div>
+      </div>
+      <div class="card-grid" id="class-list"><p class="loading">Đang tải...</p></div>
+
+      <div class="section-row" style="margin-top:32px">
+        <h3>Bài học theo lớp</h3>
+        <button class="btn-primary btn-sm" onclick="openCreateLesson()">＋ Tạo bài học mới</button>
+      </div>
+      <div id="lesson-list" class="card-grid"><p class="empty-state">Chọn một lớp để xem bài học</p></div>
+    </div>
+
+    <!-- ── VOCAB ── -->
+    <div id="panel-vocab" class="tab-panel">
+      <div class="page-header">
+        <div class="page-header-row">
+          <div><h1>Từ vựng</h1><p>Quản lý ngân hàng từ vựng</p></div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn-ghost" onclick="openModal('modal-import-vocab')">📥 Nhập CSV</button>
+            <button class="btn-primary" onclick="openModal('modal-add-vocab')">＋ Thêm từ</button>
+          </div>
+        </div>
+      </div>
+      <div class="search-wrap" style="display:flex;gap:8px;">
+        <div style="flex:1;position:relative;">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-vocab" placeholder="Tìm từ vựng..." oninput="filterVocab()"/>
+        </div>
+        <select id="filter-vocab-level" onchange="filterVocab()" style="width:110px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface);color:var(--text);outline:none;">
+          <option value="">Mọi cấp độ</option>
+          <option value="1">HSK 1</option>
+          <option value="2">HSK 2</option>
+          <option value="3">HSK 3</option>
+          <option value="4">HSK 4</option>
+          <option value="5">HSK 5</option>
+          <option value="6">HSK 6</option>
+        </select>
+        <select id="filter-vocab-cat" onchange="filterVocab()" style="width:160px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface);color:var(--text);outline:none;">
+          <option value="">Tất cả chủ đề</option>
+          <option value="Chào hỏi">Chào hỏi</option>
+          <option value="Gia đình">Gia đình</option>
+          <option value="Ăn uống">Ăn uống</option>
+          <option value="Trường học">Trường học</option>
+          <option value="Thời gian">Thời gian</option>
+          <option value="Địa điểm">Địa điểm</option>
+          <option value="Công việc">Công việc</option>
+          <option value="Giao tiếp">Giao tiếp</option>
+          <option value="Giải trí">Giải trí</option>
+          <option value="Động vật">Động vật</option>
+          <option value="Giao thông">Giao thông</option>
+          <option value="Sức khỏe">Sức khỏe</option>
+          <option value="Cảm xúc">Cảm xúc</option>
+          <option value="Số lượng">Số lượng</option>
+          <option value="Tính chất">Tính chất</option>
+          <option value="Mua sắm">Mua sắm</option>
+          <option value="Thời tiết">Thời tiết</option>
+          <option value="Khác">Khác</option>
+        </select>
+      </div>
+      <div id="vocab-content-grouped">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Hán tự</th><th>Pinyin</th><th>Nghĩa</th><th>Cấp độ</th><th>Chủ đề</th><th></th></tr>
+            </thead>
+            <tbody id="vocab-list"><tr><td colspan="6" class="loading">Đang tải...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── SENTENCES ── -->
+    <div id="panel-sentences" class="tab-panel">
+      <div class="page-header">
+        <div class="page-header-row">
+          <div><h1>Câu ngắn</h1><p>Quản lý ngân hàng câu luyện tập</p></div>
+          <button class="btn-primary" onclick="openModal('modal-add-sentence')">＋ Thêm câu</button>
+        </div>
+      </div>
+      <div class="search-wrap" style="display:flex;gap:8px;">
+        <div style="flex:1;position:relative;">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-sentences-t" placeholder="Tìm câu..." oninput="filterSentencesT()"/>
+        </div>
+        <select id="filter-sent-cat" onchange="filterSentencesT()" style="width:160px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface);color:var(--text);outline:none;">
+          <option value="">Tất cả chủ đề</option>
+          <option value="Chào hỏi">Chào hỏi</option>
+          <option value="Gia đình">Gia đình</option>
+          <option value="Ăn uống">Ăn uống</option>
+          <option value="Trường học">Trường học</option>
+          <option value="Giao tiếp">Giao tiếp</option>
+          <option value="Khác">Khác</option>
+        </select>
+      </div>
+      <div id="sentences-list-t" class="card-grid"><p class="loading">Đang tải...</p></div>
+    </div>
+
+    <!-- ── QUIZZES ── -->
+    <div id="panel-quizzes" class="tab-panel">
+      <div class="page-header">
+        <div class="page-header-row">
+          <div><h1>Bài quiz</h1><p>Tạo và phân công bài kiểm tra</p></div>
+          <button class="btn-primary" onclick="openModal('modal-create-quiz')">＋ Tạo quiz</button>
+        </div>
+      </div>
+      <div class="card-grid" id="quiz-list"><p class="loading">Đang tải...</p></div>
+    </div>
+
+    <!-- ── ANNOUNCEMENTS ── -->
+    <div id="panel-announcements" class="tab-panel">
+      <div class="page-header">
+        <div class="page-header-row">
+          <div><h1>Thông báo</h1><p>Gửi tin nhắn cho toàn trường hoặc từng lớp</p></div>
+          <button class="btn-primary" onclick="openCreateAnnouncement()">＋ Tạo thông báo</button>
+        </div>
+      </div>
+      <div id="announcement-list" class="quiz-card-list"><p class="loading">Đang tải...</p></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ══════ MODALS ══════ -->
+
+<!-- Add Student -->
+<div class="modal-overlay" id="modal-add-student">
+  <div class="modal">
+    <h3>Thêm học sinh</h3>
+    <div class="field"><label>Họ và tên</label><input type="text" id="new-student-name" placeholder="Nguyễn Văn A"/></div>
+    <div class="field"><label>Tên đăng nhập</label><input type="text" id="new-student-username" placeholder="nguyenvana"/></div>
+    <div class="field"><label>Mật khẩu</label><input type="password" id="new-student-pw" placeholder="••••••••"/></div>
+    <div id="add-student-msg" class="msg" style="display:none"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-add-student')">Huỷ</button>
+      <button class="btn-primary" onclick="addStudent()">Thêm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create Group -->
+<div class="modal-overlay" id="modal-create-group">
+  <div class="modal">
+    <h3>Tạo nhóm</h3>
+    <div class="field"><label>Tên nhóm</label><input type="text" id="new-group-name" placeholder="Nhóm A"/></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-create-group')">Huỷ</button>
+      <button class="btn-primary" onclick="createGroup()">Tạo</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add to Group -->
+<div class="modal-overlay" id="modal-add-to-group">
+  <div class="modal">
+    <h3>Thêm học sinh vào nhóm</h3>
+    <input type="hidden" id="add-group-id"/>
+    <div class="field"><label>Chọn học sinh</label>
+      <div class="picker-list" id="group-student-picker"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-add-to-group')">Huỷ</button>
+      <button class="btn-primary" onclick="addStudentsToGroup()">Thêm vào nhóm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create Class -->
+<div class="modal-overlay" id="modal-create-class">
+  <div class="modal">
+    <h3>Tạo lớp học</h3>
+    <div class="field"><label>Tên lớp</label><input type="text" id="new-class-name" placeholder="Lớp HSK1 — Cơ bản"/></div>
+    <div class="field"><label>Mô tả</label><input type="text" id="new-class-desc" placeholder="Tuỳ chọn..."/></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-create-class')">Huỷ</button>
+      <button class="btn-primary" onclick="createClass()">Tạo</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Vocab -->
+<div class="modal-overlay" id="modal-add-vocab">
+  <div class="modal">
+    <h3>Thêm từ vựng</h3>
+    <div class="field"><label>Hán tự</label><input type="text" id="new-hanzi" placeholder="你好" style="font-family:'Noto Serif SC',serif;font-size:20px;color:var(--primary);"/></div>
+    <div class="field"><label>Pinyin</label><input type="text" id="new-pinyin" placeholder="nǐ hǎo"/></div>
+    <div class="field"><label>Nghĩa tiếng Việt</label><input type="text" id="new-meaning" placeholder="Xin chào"/></div>
+    <div class="field">
+      <label>Chủ đề</label>
+      <select id="new-vocab-cat">
+        <option value="Chào hỏi">Chào hỏi</option>
+        <option value="Gia đình">Gia đình</option>
+        <option value="Ăn uống">Ăn uống</option>
+        <option value="Trường học">Trường học</option>
+        <option value="Thời gian">Thời gian</option>
+        <option value="Địa điểm">Địa điểm</option>
+        <option value="Công việc">Công việc</option>
+        <option value="Giao tiếp">Giao tiếp</option>
+        <option value="Giải trí">Giải trí</option>
+        <option value="Động vật">Động vật</option>
+        <option value="Giao thông">Giao thông</option>
+        <option value="Sức khỏe">Sức khỏe</option>
+        <option value="Cảm xúc">Cảm xúc</option>
+        <option value="Số lượng">Số lượng</option>
+        <option value="Tính chất">Tính chất</option>
+        <option value="Mua sắm">Mua sắm</option>
+        <option value="Thời tiết">Thời tiết</option>
+        <option value="Khác" selected>Khác</option>
+      </select>
+    </div>
+    <div id="add-vocab-msg" class="msg" style="display:none"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-add-vocab')">Huỷ</button>
+      <button class="btn-primary" onclick="addVocab()">Thêm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create Quiz -->
+<div class="modal-overlay" id="modal-create-quiz">
+  <div class="modal modal-wide">
+    <h3>Tạo bài quiz</h3>
+    <div class="field"><label>Tiêu đề</label><input type="text" id="quiz-title" placeholder="Từ vựng HSK1 — Tuần 1"/></div>
+    <div class="field">
+      <label>Loại quiz</label>
+      <div class="assign-targets" style="margin-top:6px;">
+        <button class="assign-btn active" data-type="homework" onclick="selectQuizType(this,'homework')">📝 Bài tập về nhà</button>
+        <button class="assign-btn" data-type="quickquiz" onclick="selectQuizType(this,'quickquiz')">⚡ Kiểm tra nhanh</button>
+      </div>
+    </div>
+    <div class="field" id="duration-field" style="display:none">
+      <label>Thời gian (giây)</label>
+      <input type="number" id="quiz-duration" placeholder="300" min="30"/>
+    </div>
+    <div class="field">
+      <label>Chọn từ vựng</label>
+      <input type="text" id="search-vocab-quiz" placeholder="Tìm từ..." oninput="filterVocabPicker()" style="margin-bottom:6px;width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;outline:none;"/>
+      <div class="picker-list" id="vocab-picker-quiz"></div>
+      <p id="vocab-pick-count" style="font-size:12px;color:var(--text3);margin-top:6px;">Chưa chọn từ nào</p>
+    </div>
+    <div class="field">
+      <label>Giao cho</label>
+      <div class="assign-targets" id="assign-target-btns">
+        <button class="assign-btn active" data-target="class" onclick="selectAssignTarget(this,'class')">🏫 Lớp</button>
+        <button class="assign-btn" data-target="group" onclick="selectAssignTarget(this,'group')">👥 Nhóm</button>
+        <button class="assign-btn" data-target="student" onclick="selectAssignTarget(this,'student')">👤 Học sinh</button>
+      </div>
+    </div>
+    <div class="field" id="assign-class-field">
+      <label>Chọn lớp</label>
+      <div class="picker-list" id="assign-class-picker"></div>
+    </div>
+    <div class="field" id="assign-group-field" style="display:none">
+      <label>Chọn nhóm</label>
+      <div class="picker-list" id="assign-group-picker"></div>
+    </div>
+    <div class="field" id="assign-student-field" style="display:none">
+      <label>Chọn học sinh</label>
+      <div class="picker-list" id="assign-student-picker"></div>
+    </div>
+    <div id="create-quiz-msg" class="msg" style="display:none"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-create-quiz')">Huỷ</button>
+      <button class="btn-primary" onclick="createQuiz()">Tạo & Giao</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create Lesson -->
+<div class="modal-overlay" id="modal-create-lesson">
+  <div class="modal">
+    <h3>Tạo bài học mới</h3>
+    <div class="field"><label>Chọn lớp học</label><select id="lesson-class-id"></select></div>
+    <div class="field"><label>Tiêu đề bài học</label><input type="text" id="lesson-title" placeholder="Bài 1: Làm quen"/></div>
+    <div class="field">
+      <label>Chọn từ vựng</label>
+      <div class="picker-list" id="lesson-vocab-picker"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-create-lesson')">Huỷ</button>
+      <button class="btn-primary" onclick="createLesson()">Tạo bài học</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Lesson -->
+<div class="modal-overlay" id="modal-edit-lesson">
+  <div class="modal">
+    <h3>Sửa bài học</h3>
+    <input type="hidden" id="edit-lesson-id"/>
+    <div class="field"><label>Tiêu đề bài học</label><input type="text" id="edit-lesson-title"/></div>
+    <div class="field">
+      <label>Chọn từ vựng (Nhấn để chọn/bỏ chọn)</label>
+      <div class="picker-list" id="edit-lesson-vocab-picker"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-edit-lesson')">Huỷ</button>
+      <button class="btn-primary" onclick="updateLesson()">Cập nhật bài học</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manage Class Members -->
+<div class="modal-overlay" id="modal-manage-class-members">
+  <div class="modal">
+    <h3 id="manage-class-title">Quản lý học sinh trong lớp</h3>
+    <input type="hidden" id="manage-class-id"/>
+    <div class="field">
+      <label>Chọn học sinh cho lớp</label>
+      <div class="picker-list" id="class-student-picker"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-manage-class-members')">Huỷ</button>
+      <button class="btn-primary" onclick="saveClassMembers()">Lưu thay đổi</button>
+    </div>
+  </div>
+</div>
+
+<!-- Assign Lesson to Class -->
+<div class="modal-overlay" id="modal-assign-lesson">
+  <div class="modal">
+    <h3>Thêm bài học vào lớp</h3>
+    <div class="field"><label>Chọn lớp học</label><select id="assign-lesson-class-id"></select></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-assign-lesson')">Huỷ</button>
+      <button class="btn-primary" onclick="assignLessonToClass()">Thêm ngay</button>
+    </div>
+  </div>
+</div>
+
+<!-- Quiz Results Detail -->
+<div class="modal-overlay" id="modal-quiz-results">
+  <div class="modal" style="max-width:700px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+      <div>
+        <h3 id="qr-modal-title" style="margin:0">Kết quả chi tiết</h3>
+        <p id="qr-modal-subtitle" style="font-size:12px;color:var(--text3);margin-top:4px;"></p>
+      </div>
+      <button class="btn-ghost" onclick="closeModal('modal-quiz-results')">✕</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Học sinh</th>
+            <th>Trạng thái</th>
+            <th>Điểm số</th>
+            <th>Ngày nộp</th>
+          </tr>
+        </thead>
+        <tbody id="qr-modal-body">
+          <!-- Rows injected by JS -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Import Vocab -->
+<div class="modal-overlay" id="modal-import-vocab">
+  <div class="modal">
+    <h3>Nhập từ vựng từ CSV</h3>
+    <p style="font-size:12px;color:var(--text3);margin-bottom:12px;">Định dạng: Hán tự, Pinyin, Nghĩa (mỗi từ một dòng)</p>
+    <div class="field"><textarea id="csv-input" rows="10" placeholder="你好, nǐ hǎo, Xin chào&#10;谢谢, xiè xie, Cảm ơn"></textarea></div>
+    <div id="import-msg" class="msg" style="display:none"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-import-vocab')">Huỷ</button>
+      <button class="btn-primary" onclick="importVocab()">Bắt đầu nhập</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create Announcement -->
+<div class="modal-overlay" id="modal-create-announcement">
+  <div class="modal">
+    <h3>Tạo thông báo mới</h3>
+    <div class="field"><label>Tiêu đề</label><input type="text" id="ann-title" placeholder="Lịch kiểm tra HSK1"/></div>
+    <div class="field">
+      <label>Gửi đến lớp (Để trống nếu gửi toàn trường)</label>
+      <select id="ann-class-id">
+        <option value="">Toàn trường (Tất cả học sinh)</option>
+      </select>
+    </div>
+    <div class="field"><label>Nội dung</label><textarea id="ann-content" rows="4" placeholder="Thông báo cho các em về..."></textarea></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-create-announcement')">Huỷ</button>
+      <button class="btn-primary" onclick="createAnnouncement()">Gửi thông báo</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Announcement -->
+<div class="modal-overlay" id="modal-edit-announcement">
+  <div class="modal">
+    <h3>Sửa thông báo</h3>
+    <input type="hidden" id="edit-ann-id"/>
+    <div class="field"><label>Tiêu đề</label><input type="text" id="edit-ann-title"/></div>
+    <div class="field">
+      <label>Gửi đến lớp (Để trống nếu gửi toàn trường)</label>
+      <select id="edit-ann-class-id"></select>
+    </div>
+    <div class="field"><label>Nội dung</label><textarea id="edit-ann-content" rows="4"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-edit-announcement')">Huỷ</button>
+      <button class="btn-primary" onclick="updateAnnouncement()">Cập nhật thông báo</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Sentence -->
+<div class="modal-overlay" id="modal-add-sentence">
+  <div class="modal">
+    <h3>Thêm câu ngắn</h3>
+    <div class="field"><label>Chữ Hán</label><input type="text" id="new-sent-zh" placeholder="我爱你。"/></div>
+    <div class="field"><label>Pinyin</label><input type="text" id="new-sent-py" placeholder="Wǒ ài nǐ."/></div>
+    <div class="field"><label>Nghĩa tiếng Việt</label><input type="text" id="new-sent-vn" placeholder="Tôi yêu bạn."/></div>
+    <div class="field">
+      <label>Cấp độ HSK</label>
+      <select id="new-sent-hsk">
+        <option value="1">HSK 1</option>
+        <option value="2">HSK 2</option>
+        <option value="3">HSK 3</option>
+        <option value="4">HSK 4</option>
+        <option value="5">HSK 5</option>
+        <option value="6">HSK 6</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Chủ đề</label>
+      <select id="new-sent-cat">
+        <option value="Chào hỏi">Chào hỏi</option>
+        <option value="Gia đình">Gia đình</option>
+        <option value="Ăn uống">Ăn uống</option>
+        <option value="Trường học">Trường học</option>
+        <option value="Giao tiếp">Giao tiếp</option>
+        <option value="Khác" selected>Khác</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-add-sentence')">Huỷ</button>
+      <button class="btn-primary" onclick="addSentence()">Thêm câu</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast-msg"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase.js"></script>
+<script src="teacher.js"></script>
+</body>
+</html>
