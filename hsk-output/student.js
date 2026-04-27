@@ -28,6 +28,7 @@ let vqQuestions    = [];
 let vqIdx          = 0;
 let vqScore        = 0;
 let vqCurrentMode  = 0; // 0: Hanzi->Meaning, 1: Meaning->Hanzi
+let vqAnswered     = false;
 
 const AVATAR_COLORS = ['#C84B31','#3D6B4F','#2A5FA5','#6B3FA0','#C08830','#1F7A4D','#8B4513','#2E86C1'];
 function avatarColor(name) { let h=0; for(let c of name) h=(h+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h]; }
@@ -341,6 +342,7 @@ function renderVQ() {
   
   // Randomize mode: 0 = Hanzi to Meaning, 1 = Meaning to Hanzi
   vqCurrentMode = Math.random() > 0.5 ? 0 : 1;
+  vqAnswered = false;
   
   const wrong = shuffle(allVocab.filter(v => v.id !== cur.id)).slice(0, 3);
   const options = shuffle([cur, ...wrong]);
@@ -365,7 +367,7 @@ function renderVQ() {
     
     <div class="options-grid" style="margin-top:30px;">
       ${options.map(opt => `
-        <button class="opt-btn"
+        <button type="button" class="opt-btn"
           ${vqCurrentMode === 0
             ? `onmouseenter="speak('${opt.hanzi.replace(/'/g, "\\'")}')" onclick="speak('${opt.hanzi.replace(/'/g, "\\'")}'); handleVQAns(this, ${opt.id === cur.id})"`
             : `onclick="handleVQAns(this, ${opt.id === cur.id})"`}>
@@ -382,8 +384,13 @@ function renderVQ() {
 }
 
 function handleVQAns(btn, isCorrect) {
+  if (vqAnswered) return;
+  vqAnswered = true;
   const btns = document.querySelectorAll('#vq-area .opt-btn');
-  btns.forEach(b => b.style.pointerEvents = 'none');
+  btns.forEach(b => {
+    b.disabled = true;
+    b.style.pointerEvents = 'none';
+  });
   const fb = document.getElementById('vq-feedback');
   const cur = vqQuestions[vqIdx];
   
