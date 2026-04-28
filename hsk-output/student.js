@@ -343,6 +343,14 @@ function renderVQ() {
   if (overlay) overlay.scrollTop = 0;
   if (container) container.scrollTop = 0;
   
+  // Force browser to clear any persisting hover states from touch events
+  if (container) {
+    container.style.pointerEvents = 'none';
+    // Force reflow to clear hover state
+    void container.offsetHeight;
+    container.style.pointerEvents = 'auto';
+  }
+  
   // Randomize mode: 0 = Hanzi to Meaning, 1 = Meaning to Hanzi
   vqCurrentMode = Math.random() > 0.5 ? 0 : 1;
   vqAnswered = false;
@@ -370,7 +378,7 @@ function renderVQ() {
     
     <div class="options-grid" style="margin-top:30px;">
       ${options.map(opt => `
-        <button type="button" class="opt-btn"
+        <button type="button" class="opt-btn" style="border-color:var(--border);background:var(--surface);color:inherit;"
           ${vqCurrentMode === 0
             ? `onmouseenter="speak('${opt.hanzi.replace(/'/g, "\\'")}')" onclick="speak('${opt.hanzi.replace(/'/g, "\\'")}'); handleVQAns(this, ${opt.id === cur.id})"`
             : `onclick="handleVQAns(this, ${opt.id === cur.id})"`}>
