@@ -566,8 +566,11 @@ function renderSQ() {
   const cur = sqQuestions[sqIdx];
   const container = document.getElementById('vq-area');
   const prog = document.getElementById('vq-prog');
+  const overlay = document.querySelector('#vocab-quiz-overlay .hsk-overlay-inner');
   
   if (prog) prog.style.width = `${(sqIdx / sqQuestions.length) * 100}%`;
+  if (overlay) overlay.scrollTop = 0;
+  if (container) container.scrollTop = 0;
   
   if (sqQuizType === 'full') {
     sqCurrentMode = Math.random() > 0.5 ? 0 : 1;
@@ -588,7 +591,7 @@ function renderSQ() {
     const options = shuffle([cur, ...wrong]);
     
     container.innerHTML = `
-      <div class="question-card" style="margin-top:20px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border: none; background: rgba(255,255,255,0.85);">
+      <div class="question-card" style="margin-top:20px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border: none; background: rgba(255,255,255,0.85); padding:32px 24px 24px;">
         <div class="q-label">${sqCurrentMode === 0 ? 'Câu này có nghĩa là gì?' : 'Dịch câu này sang tiếng Trung:'}</div>
         
         ${sqCurrentMode === 0 
@@ -607,7 +610,7 @@ function renderSQ() {
       
       <div class="options-grid" style="margin-top:30px;">
         ${options.map(opt => `
-          <button class="opt-btn"
+          <button class="opt-btn" style="border-color:var(--border);background:var(--surface);color:inherit;"
             ${sqCurrentMode === 0
               ? `onmouseenter="speak('${opt.chinese.replace(/'/g, "\\'")}')" onclick="speak('${opt.chinese.replace(/'/g, "\\'")}'); handleSQAns(this, ${opt.id === cur.id})"`
               : `onclick="handleSQAns(this, ${opt.id === cur.id})"`}>
@@ -644,7 +647,7 @@ function renderSQ() {
     const options = shuffle([{ hanzi: sqBlankTarget, pinyin: correctVocab ? correctVocab.pinyin : '', isCorrect: true }, ...wrongWords.map(w => ({ hanzi: w.hanzi, pinyin: w.pinyin, isCorrect: false }))]);
     
     container.innerHTML = `
-      <div class="question-card" style="margin-top:20px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border: none; background: rgba(255,255,255,0.85);">
+      <div class="question-card" style="margin-top:20px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border: none; background: rgba(255,255,255,0.85); padding:32px 24px 24px;">
         <div class="q-label">Điền từ còn thiếu vào chỗ trống:</div>
         <div style="font-size:16px; color:var(--text2); margin-bottom:12px;">${cur.meaning}</div>
         <div class="q-hanzi" style="font-size:28px; line-height:1.6; margin:0;">${displayHtml}</div>
@@ -653,7 +656,7 @@ function renderSQ() {
       
       <div class="options-grid" style="margin-top:30px;">
         ${options.map(opt => `
-          <button class="opt-btn" onclick="speak('${opt.hanzi.replace(/'/g, "\\'")}'); handleSQAns(this, ${opt.isCorrect})">
+          <button class="opt-btn" style="border-color:var(--border);background:var(--surface);color:inherit;" onclick="speak('${opt.hanzi.replace(/'/g, "\\'")}'); handleSQAns(this, ${opt.isCorrect})">
             <span class="opt-main" style="font-size:24px;">${opt.hanzi}</span>
           </button>
         `).join('')}
@@ -668,23 +671,23 @@ function renderSQ() {
     sqArrangeExpected = segments.map(s => s.text.trim()).join('');
     
     container.innerHTML = `
-      <div class="question-card" style="margin-top:20px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border: none; background: rgba(255,255,255,0.85);">
+      <div class="question-card" style="margin-top:20px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border: none; background: rgba(255,255,255,0.85); padding:32px 24px 24px;">
         <div class="q-label">Sắp xếp các từ thành câu hoàn chỉnh:</div>
         <div style="font-size:18px; color:var(--text); margin-top:8px; margin-bottom:20px; font-weight:500;">${cur.meaning}</div>
         
-        <div id="arrange-dropzone" style="min-height:50px; border-bottom:2px solid #ccc; padding-bottom:10px; display:flex; flex-wrap:wrap; gap:8px;"></div>
+        <div id="arrange-dropzone" style="min-height:64px; border:1px dashed var(--border); border-radius:var(--r); padding:12px; display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; background:var(--surface);"></div>
         
         <div class="q-num">Câu ${sqIdx + 1} / ${sqQuestions.length}</div>
       </div>
       
-      <div id="arrange-bank" style="margin-top:30px; display:flex; flex-wrap:wrap; gap:10px; justify-content:center;">
+      <div id="arrange-bank" style="margin-top:28px; display:flex; flex-wrap:wrap; gap:10px; justify-content:center;">
         ${sqArrangeSegments.map((seg, i) => {
           const v = allVocab.find(vocab => vocab.hanzi === seg.text);
           const py = v ? v.pinyin : '';
           return `
-          <button id="arr-btn-${i}" class="btn-ghost" style="padding:8px 15px; border:1px solid var(--border); background:white; color:var(--text); cursor:pointer; border-radius:var(--r-sm); display:flex; flex-direction:column; align-items:center;" onclick="toggleArrangeWord(${i})">
-            <span style="font-size:20px;">${seg.text}</span>
-            ${py ? `<span style="font-size:12px; color:var(--text3); margin-top:2px;">${py}</span>` : ''}
+          <button id="arr-btn-${i}" class="opt-btn" style="border-color:var(--border);background:var(--surface);color:inherit;min-width:104px;padding:10px 14px;display:flex;flex-direction:column;align-items:center;text-align:center;" onclick="toggleArrangeWord(${i})">
+            <span style="font-size:20px;font-weight:700;line-height:1.1;">${seg.text}</span>
+            ${py ? `<span style="font-size:12px; color:var(--text3); margin-top:3px;">${py}</span>` : ''}
           </button>
           `;
         }).join('')}
@@ -711,6 +714,9 @@ function toggleArrangeWord(i) {
     sqArrangeSelected.push(i);
     dropzone.appendChild(btn);
   }
+  btn.style.borderColor = 'var(--border)';
+  btn.style.background = 'var(--surface)';
+  btn.style.color = 'inherit';
   
   const checkBtn = document.getElementById('arrange-check-btn');
   if (sqArrangeSelected.length === sqArrangeSegments.length) {
@@ -783,6 +789,8 @@ function handleSQAns(btn, isCorrect) {
   }
   
   fb.style.display = 'block';
+  const isTouchMobile = window.matchMedia('(max-width: 480px), (hover: none) and (pointer: coarse)').matches;
+  const advanceDelay = isTouchMobile ? 650 : 1500;
   
   setTimeout(() => {
     sqIdx++;
@@ -791,7 +799,7 @@ function handleSQAns(btn, isCorrect) {
     } else {
       showSQResult();
     }
-  }, 1500);
+  }, advanceDelay);
 }
 
 function showSQResult() {
