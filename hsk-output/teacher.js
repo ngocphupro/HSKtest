@@ -16,6 +16,7 @@ let selectedClassIds = new Set();
 let selectedGroupIds = new Set();
 let quizType = 'homework';
 let assignTarget = 'class';
+let editingQuizId = null;
 let studentLevels = {}; // { student_id: hsk_level }
 
 const AVATAR_COLORS = ['#C84B31', '#3D6B4F', '#2A5FA5', '#6B3FA0', '#C08830', '#1F7A4D', '#8B4513', '#2E86C1'];
@@ -47,7 +48,7 @@ function speak(text) {
   document.getElementById('teacher-name').textContent = profile.full_name;
   document.getElementById('teacher-avatar').textContent = initials(profile.full_name);
   document.getElementById('teacher-avatar').style.background = avatarColor(profile.full_name);
-  await Promise.all([loadStudents(), loadGroups(), loadClasses(), loadVocab(), loadQuizzes(), loadResults(), loadHskBadge(), loadAnnouncements(), loadSentencesT()]);
+  await Promise.all([loadStudents(), loadClasses(), loadVocab(), loadQuizzes(), loadResults(), loadHskBadge(), loadAnnouncements(), loadSentencesT()]);
 })();
 
 // ── Navigation ──
@@ -303,6 +304,8 @@ async function loadClasses() {
         </div>
         <div class="card-actions">
           <button class="btn-ghost btn-xs" onclick="openManageClassMembers(${c.id}, '${c.name}')">👥 Thành viên</button>
+          <button class="btn-ghost btn-xs" onclick="openEditClass(${c.id})">✏️ Sửa</button>
+          <button class="btn-danger btn-xs" onclick="deleteClass(${c.id}, '${c.name.replace(/'/g, "\\'")}')">✕</button>
         </div>
       </div>
     </div>`).join('');
@@ -317,6 +320,38 @@ async function createClass() {
   ['new-class-name', 'new-class-desc'].forEach(id => document.getElementById(id).value = '');
   await loadClasses();
   showToast('✓ Đã tạo lớp ' + name);
+}
+
+async function openEditClass(classId) {
+  const { data } = await sb.from('classes').select('*').eq('id', classId).single();
+  if (!data) return;
+  document.getElementById('edit-class-id').value = data.id;
+  document.getElementById('edit-class-name').value = data.name;
+  document.getElementById('edit-class-desc').value = data.description || '';
+  openModal('modal-edit-class');
+}
+
+async function updateClass() {
+  const id = parseInt(document.getElementById('edit-class-id').value);
+  const name = document.getElementById('edit-class-name').value.trim();
+  const desc = document.getElementById('edit-class-desc').value.trim();
+  if (!name) return alert('Nhập tên lớp');
+  const { error } = await sb.from('classes').update({ name, description: desc || null }).eq('id', id);
+  if (error) return alert('Lỗi: ' + error.message);
+  closeModal('modal-edit-class');
+  await loadClasses();
+  showToast('✓ Đã cập nhật lớp');
+}
+
+async function deleteClass(id, name) {
+  if (!confirm(`Bạn có chắc muốn xoá lớp "${name}"? Thao tác này sẽ xoá danh sách thành viên và bài học trong lớp.`)) return;
+  // Remove members and lessons associated with the class first
+  await sb.from('class_members').delete().eq('class_id', id);
+  await sb.from('lessons').delete().eq('class_id', id);
+  const { error } = await sb.from('classes').delete().eq('id', id);
+  if (error) return alert('Lỗi: ' + error.message);
+  showToast('✓ Đã xoá lớp ' + name);
+  await loadClasses();
 }
 
 async function openManageClassMembers(classId, className) {
@@ -406,7 +441,7 @@ function openCreateLesson() {
   const picker = document.getElementById('lesson-vocab-picker');
   // Order allVocab by level for the picker
   const pickerList = [...allVocab].sort((a,b) => a.hsk_level - b.hsk_level);
-  picker.innerHTML = pickerList.slice(0, 500).map(v => `
+  picker.innerHTML = pickerList.map(v => `
     <div class="picker-item" onclick="togglePick(this,'vocab',${v.id})">
       <span style="font-family:'Noto Serif SC',serif">${v.hanzi}</span>
       <span class="pi-name">${v.pinyin} (HSK ${v.hsk_level})</span>
@@ -491,7 +526,7 @@ async function openEditLesson(lessonId) {
   (lesson.lesson_vocab || []).forEach(lv => selectedVocabIds.add(lv.vocab_id));
   
   const picker = document.getElementById('edit-lesson-vocab-picker');
-  picker.innerHTML = allVocab.slice(0, 100).map(v => {
+  picker.innerHTML = allVocab.map(v => {
     const isSelected = selectedVocabIds.has(v.id);
     return `
       <div class="picker-item ${isSelected ? 'selected' : ''}" onclick="togglePick(this,'vocab',${v.id})">
@@ -529,6 +564,49 @@ async function loadVocab() {
   const { data } = await sb.from('vocab').select('*').order('hsk_level').order('id');
   allVocab = data || [];
   renderVocabTable(allVocab);
+  refreshVocabDependentPickers();
+}
+
+function refreshVocabDependentPickers() {
+  const createQuizModal = document.getElementById('modal-create-quiz');
+  if (createQuizModal?.classList.contains('open')) renderVocabPicker(document.getElementById('search-vocab-quiz').value.toLowerCase());
+
+  const createLessonModal = document.getElementById('modal-create-lesson');
+  if (createLessonModal?.classList.contains('open')) {
+    const sel = document.getElementById('lesson-class-id');
+    if (sel && !sel.innerHTML) sel.innerHTML = '<option value="">-- Lưu vào thư viện (Mẫu) --</option>' + allClasses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    const picker = document.getElementById('lesson-vocab-picker');
+    if (picker) {
+      const pickerList = [...allVocab].sort((a, b) => a.hsk_level - b.hsk_level);
+      picker.innerHTML = pickerList.map(v => `
+        <div class="picker-item" onclick="togglePick(this,'vocab',${v.id})">
+          <span style="font-family:'Noto Serif SC',serif">${v.hanzi}</span>
+          <span class="pi-name">${v.pinyin} (HSK ${v.hsk_level})</span>
+          <span class="pi-check">✓</span>
+        </div>`).join('');
+    }
+  }
+
+  const editLessonModal = document.getElementById('modal-edit-lesson');
+  if (editLessonModal?.classList.contains('open')) {
+    const picker = document.getElementById('edit-lesson-vocab-picker');
+    if (picker) {
+      picker.innerHTML = allVocab.map(v => {
+        const isSelected = selectedVocabIds.has(v.id);
+        return `
+          <div class="picker-item ${isSelected ? 'selected' : ''}" onclick="togglePick(this,'vocab',${v.id})">
+            <span style="font-family:'Noto Serif SC',serif">${v.hanzi}</span>
+            <span class="pi-name">${v.pinyin}</span>
+            <span class="pi-check">✓</span>
+          </div>`;
+      }).join('');
+    }
+  }
+
+  const editQuizModal = document.getElementById('modal-edit-quiz');
+  if (editQuizModal?.classList.contains('open')) {
+    renderEditVocabPicker(document.getElementById('edit-search-vocab-quiz')?.value.toLowerCase() || '');
+  }
 }
 
 function renderVocabTable(list) {
@@ -755,6 +833,10 @@ async function loadQuizzes() {
         <div class="progress-track">
           <div class="progress-fill${pct >= 80 ? ' ' : pct >= 40 ? ' gold' : ' red'}" style="width:${pct}%"></div>
         </div>
+        <div class="card-actions-bottom" style="margin-top:12px;">
+          <button class="btn-ghost btn-xs" style="flex:1" onclick="event.stopPropagation();openEditQuiz(${q.id})">✏️ Sửa</button>
+          <button class="btn-danger btn-xs" onclick="event.stopPropagation();deleteQuiz(${q.id})">✕ Xoá</button>
+        </div>
       </div>`;
   }).join('');
 }
@@ -771,18 +853,45 @@ function selectAssignTarget(btn, target) {
   document.querySelectorAll('[data-target]').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('assign-class-field').style.display = target === 'class' ? 'block' : 'none';
-  document.getElementById('assign-group-field').style.display = target === 'group' ? 'block' : 'none';
   document.getElementById('assign-student-field').style.display = target === 'student' ? 'block' : 'none';
 }
 
 function openCreateQuiz() {
+  editingQuizId = null;
+  quizType = 'homework';
+  assignTarget = 'class';
   selectedVocabIds.clear();
   selectedClassIds.clear();
-  selectedGroupIds.clear();
   selectedStudentIds.clear();
+  document.getElementById('quiz-title').value = '';
+  document.getElementById('quiz-duration').value = '';
+  document.getElementById('create-quiz-msg').style.display = 'none';
+  document.querySelectorAll('#modal-create-quiz [data-type]').forEach(b => b.classList.remove('active'));
+  document.querySelector('#modal-create-quiz [data-type="homework"]').classList.add('active');
+  document.querySelectorAll('#modal-create-quiz [data-target]').forEach(b => b.classList.remove('active'));
+  document.querySelector('#modal-create-quiz [data-target="class"]').classList.add('active');
+  document.getElementById('duration-field').style.display = 'none';
+  document.getElementById('assign-class-field').style.display = 'block';
+  document.getElementById('assign-student-field').style.display = 'none';
   renderVocabPicker();
   renderAssignPickers();
+  document.getElementById('create-quiz-msg').style.display = 'none';
   openModal('modal-create-quiz');
+}
+
+function selectEditQuizType(btn, type) {
+  quizType = type;
+  document.querySelectorAll('[data-edit-type]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('edit-duration-field').style.display = type === 'quickquiz' ? 'block' : 'none';
+}
+
+function selectEditAssignTarget(btn, target) {
+  assignTarget = target;
+  document.querySelectorAll('[data-edit-target]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('edit-assign-class-field').style.display = target === 'class' ? 'block' : 'none';
+  document.getElementById('edit-assign-student-field').style.display = target === 'student' ? 'block' : 'none';
 }
 
 function renderVocabPicker(filter = '') {
@@ -811,12 +920,6 @@ function renderAssignPickers() {
   classPicker.innerHTML = allClasses.map(c => `
     <div class="picker-item" onclick="togglePick(this,'class',${c.id})">
       <span class="pi-name">🏫 ${c.name}</span>
-      <span class="pi-check">✓</span>
-    </div>`).join('');
-  const groupPicker = document.getElementById('assign-group-picker');
-  groupPicker.innerHTML = allGroups.map(g => `
-    <div class="picker-item" onclick="togglePick(this,'group',${g.id})">
-      <span class="pi-name">👥 ${g.name}</span>
       <span class="pi-check">✓</span>
     </div>`).join('');
   const studentPicker = document.getElementById('assign-student-picker');
@@ -881,6 +984,177 @@ async function createQuiz() {
   showToast(`✓ Đã tạo quiz "${title}" · ${targetStudents.length} học sinh`);
 }
 
+async function openEditQuiz(quizId) {
+  const quiz = allQuizzes.find(q => q.id === quizId);
+  if (!quiz) return;
+
+  editingQuizId = quiz.id;
+  quizType = quiz.type || 'homework';
+  assignTarget = 'class';
+  selectedVocabIds = new Set(quiz.vocab_ids || []);
+  selectedClassIds = new Set();
+  selectedStudentIds = new Set();
+
+  document.getElementById('edit-quiz-id').value = quiz.id;
+  document.getElementById('edit-quiz-heading').textContent = `Sửa bài quiz: ${quiz.title}`;
+  document.getElementById('edit-quiz-title').value = quiz.title || '';
+  document.getElementById('edit-quiz-duration').value = quiz.duration_seconds || '';
+  document.getElementById('edit-quiz-msg').style.display = 'none';
+  document.querySelectorAll('#modal-edit-quiz [data-edit-type]').forEach(b => b.classList.remove('active'));
+  const typeBtn = document.querySelector(`#modal-edit-quiz [data-edit-type="${quizType}"]`);
+  if (typeBtn) typeBtn.classList.add('active');
+  document.getElementById('edit-duration-field').style.display = quizType === 'quickquiz' ? 'block' : 'none';
+  document.querySelectorAll('#modal-edit-quiz [data-edit-target]').forEach(b => b.classList.remove('active'));
+  document.querySelector('#modal-edit-quiz [data-edit-target="class"]').classList.add('active');
+  document.getElementById('edit-assign-class-field').style.display = 'block';
+  document.getElementById('edit-assign-student-field').style.display = 'none';
+
+  const { data: assignedRows } = await sb.from('quiz_assignments').select('student_id').eq('quiz_id', quiz.id);
+  const studentIds = new Set((assignedRows || []).map(row => row.student_id));
+  const inferredClasses = inferClassesFromStudents(studentIds);
+  selectedClassIds = inferredClasses;
+  selectedStudentIds = studentIds;
+  assignTarget = inferredClasses.size ? 'class' : 'student';
+  document.querySelectorAll('#modal-edit-quiz [data-edit-target]').forEach(b => b.classList.remove('active'));
+  const editTargetBtn = document.querySelector(`#modal-edit-quiz [data-edit-target="${assignTarget}"]`);
+  if (editTargetBtn) editTargetBtn.classList.add('active');
+  document.getElementById('edit-assign-class-field').style.display = assignTarget === 'class' ? 'block' : 'none';
+  document.getElementById('edit-assign-student-field').style.display = assignTarget === 'student' ? 'block' : 'none';
+
+  renderEditVocabPicker();
+  renderEditAssignPickers();
+  openModal('modal-edit-quiz');
+}
+
+function inferClassesFromStudents(studentIds) {
+  const target = new Set(studentIds);
+  if (!target.size) return new Set();
+
+  const classEntries = allClasses
+    .map(c => ({ id: c.id, members: new Set((c.class_members || []).map(m => m.student_id)) }))
+    .filter(c => c.members.size > 0);
+
+  let best = null;
+
+  function backtrack(index, chosen, unionSet) {
+    if (unionSet.size > target.size) return;
+    let matches = unionSet.size === target.size;
+    if (matches) {
+      for (const id of target) {
+        if (!unionSet.has(id)) { matches = false; break; }
+      }
+    }
+    if (matches) {
+      if (!best || chosen.length < best.length) best = [...chosen];
+      return;
+    }
+    if (index >= classEntries.length) return;
+    if (best && chosen.length >= best.length) return;
+
+    for (let i = index; i < classEntries.length; i++) {
+      const entry = classEntries[i];
+      const nextUnion = new Set(unionSet);
+      entry.members.forEach(id => nextUnion.add(id));
+      chosen.push(entry.id);
+      backtrack(i + 1, chosen, nextUnion);
+      chosen.pop();
+    }
+  }
+
+  backtrack(0, [], new Set());
+  return new Set(best || []);
+}
+
+function renderEditVocabPicker(filter = '') {
+  const el = document.getElementById('edit-vocab-picker-quiz');
+  const list = filter ? allVocab.filter(v => v.hanzi.includes(filter) || v.pinyin.toLowerCase().includes(filter) || v.meaning.toLowerCase().includes(filter)) : allVocab;
+  el.innerHTML = list.map(v => `
+    <div class="picker-item${selectedVocabIds.has(v.id) ? ' selected' : ''}" onclick="toggleEditVocabPick(this,${v.id})">
+      <span style="font-family:'Noto Serif SC',serif;font-size:18px;color:var(--primary);min-width:32px;">${v.hanzi}</span>
+      <span class="pi-name">${v.pinyin} — ${v.meaning}</span>
+      <span class="pi-check">✓</span>
+    </div>`).join('');
+  document.getElementById('edit-vocab-pick-count').textContent = selectedVocabIds.size ? `Đã chọn ${selectedVocabIds.size} từ` : 'Chưa chọn từ nào';
+}
+
+function toggleEditVocabPick(el, id) {
+  el.classList.toggle('selected');
+  if (selectedVocabIds.has(id)) selectedVocabIds.delete(id); else selectedVocabIds.add(id);
+  document.getElementById('edit-vocab-pick-count').textContent = selectedVocabIds.size ? `Đã chọn ${selectedVocabIds.size} từ` : 'Chưa chọn từ nào';
+}
+
+function filterEditVocabPicker() {
+  renderEditVocabPicker(document.getElementById('edit-search-vocab-quiz').value.toLowerCase());
+}
+
+function renderEditAssignPickers() {
+  const classPicker = document.getElementById('edit-assign-class-picker');
+  classPicker.innerHTML = allClasses.map(c => `
+    <div class="picker-item${selectedClassIds.has(c.id) ? ' selected' : ''}" onclick="togglePick(this,'class',${c.id})">
+      <span class="pi-name">🏫 ${c.name}</span>
+      <span class="pi-check">✓</span>
+    </div>`).join('');
+  const studentPicker = document.getElementById('edit-assign-student-picker');
+  studentPicker.innerHTML = allStudents.map(s => `
+    <div class="picker-item${selectedStudentIds.has(s.id) ? ' selected' : ''}" onclick="togglePick(this,'student',${JSON.stringify(s.id)})">
+      <div class="stu-avatar" style="background:${avatarColor(s.full_name)};width:26px;height:26px;font-size:10px;">${initials(s.full_name)}</div>
+      <span class="pi-name">${s.full_name}</span>
+      <span class="pi-check">✓</span>
+    </div>`).join('');
+}
+
+async function updateQuiz() {
+  const id = parseInt(document.getElementById('edit-quiz-id').value);
+  const title = document.getElementById('edit-quiz-title').value.trim();
+  const duration = parseInt(document.getElementById('edit-quiz-duration').value) || null;
+  const msgEl = document.getElementById('edit-quiz-msg');
+  const showErr = t => { msgEl.textContent = t; msgEl.className = 'msg error'; msgEl.style.display = 'block'; };
+
+  if (!title) return showErr('Nhập tiêu đề quiz.');
+  if (!selectedVocabIds.size) return showErr('Chọn ít nhất 1 từ vựng.');
+
+  const { error } = await sb.from('quizzes').update({
+    title,
+    vocab_ids: [...selectedVocabIds],
+    type: quizType,
+    duration_seconds: quizType === 'quickquiz' ? duration : null,
+  }).eq('id', id);
+  if (error) return showErr(error.message);
+
+  let targetStudents = [];
+  if (assignTarget === 'class') {
+    const classArr = [...selectedClassIds];
+    if (classArr.length) {
+      const { data } = await sb.from('class_members').select('student_id').in('class_id', classArr);
+      targetStudents = (data || []).map(r => r.student_id);
+    }
+  } else {
+    targetStudents = [...selectedStudentIds];
+  }
+
+  await sb.from('quiz_assignments').delete().eq('quiz_id', id);
+  if (targetStudents.length) {
+    const rows = targetStudents.map(sid => ({ quiz_id: id, student_id: sid }));
+    await sb.from('quiz_assignments').insert(rows);
+  }
+
+  closeModal('modal-edit-quiz');
+  await loadQuizzes();
+  showToast(`✓ Đã cập nhật quiz "${title}"`);
+}
+
+async function deleteQuiz(id) {
+  const quiz = allQuizzes.find(q => q.id === id);
+  const title = quiz?.title || 'quiz này';
+  if (!confirm(`Bạn có chắc muốn xoá "${title}"? Thao tác này sẽ xoá luôn kết quả và lượt giao.`)) return;
+  await sb.from('quiz_assignments').delete().eq('quiz_id', id);
+  await sb.from('quiz_results').delete().eq('quiz_id', id);
+  const { error } = await sb.from('quizzes').delete().eq('id', id);
+  if (error) return alert('Lỗi: ' + error.message);
+  showToast(`✓ Đã xoá quiz "${title}"`);
+  await loadQuizzes();
+}
+
 // ══════════════════════════════════════════
 //  RESULTS
 // ══════════════════════════════════════════
@@ -891,6 +1165,7 @@ async function loadResults() {
     .order('completed_at', { ascending: false })
     .limit(100);
   const el = document.getElementById('results-list');
+  if (!el) return;
   if (!data || !data.length) { el.innerHTML = '<tr><td colspan="5" class="empty-state">Chưa có kết quả nào.</td></tr>'; return; }
   el.innerHTML = data.map(r => {
     const pct = Math.round(r.score / r.total * 100);

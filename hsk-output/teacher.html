@@ -33,9 +33,7 @@
         <span class="nav-icon">🎓</span> Cấp quyền HSK
         <span class="nav-badge" id="hsk-badge" style="display:none">0</span>
       </button>
-      <button class="nav-item" onclick="showPanel('groups')">
-        <span class="nav-icon">👥</span> Nhóm học
-      </button>
+      <!-- Nhóm đã bị xoá theo yêu cầu -->
     </div>
 
     <div class="sidebar-section">
@@ -137,16 +135,7 @@
       <div id="hsk-approve-list"><p class="loading">Đang tải...</p></div>
     </div>
 
-    <!-- ── GROUPS ── -->
-    <div id="panel-groups" class="tab-panel">
-      <div class="page-header">
-        <div class="page-header-row">
-          <div><h1>Nhóm</h1><p>Quản lý nhóm học sinh</p></div>
-          <button class="btn-primary" onclick="openModal('modal-create-group')">＋ Tạo nhóm</button>
-        </div>
-      </div>
-      <div class="card-grid" id="group-list"><p class="loading">Đang tải...</p></div>
-    </div>
+    <!-- Nhóm đã bị xoá -->
 
     <!-- ── CLASSES ── -->
     <div id="panel-classes" class="tab-panel">
@@ -292,32 +281,7 @@
   </div>
 </div>
 
-<!-- Create Group -->
-<div class="modal-overlay" id="modal-create-group">
-  <div class="modal">
-    <h3>Tạo nhóm</h3>
-    <div class="field"><label>Tên nhóm</label><input type="text" id="new-group-name" placeholder="Nhóm A"/></div>
-    <div class="modal-actions">
-      <button class="btn-ghost" onclick="closeModal('modal-create-group')">Huỷ</button>
-      <button class="btn-primary" onclick="createGroup()">Tạo</button>
-    </div>
-  </div>
-</div>
-
-<!-- Add to Group -->
-<div class="modal-overlay" id="modal-add-to-group">
-  <div class="modal">
-    <h3>Thêm học sinh vào nhóm</h3>
-    <input type="hidden" id="add-group-id"/>
-    <div class="field"><label>Chọn học sinh</label>
-      <div class="picker-list" id="group-student-picker"></div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn-ghost" onclick="closeModal('modal-add-to-group')">Huỷ</button>
-      <button class="btn-primary" onclick="addStudentsToGroup()">Thêm vào nhóm</button>
-    </div>
-  </div>
-</div>
+<!-- Nhóm UI đã bị xoá -->
 
 <!-- Create Class -->
 <div class="modal-overlay" id="modal-create-class">
@@ -328,6 +292,20 @@
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('modal-create-class')">Huỷ</button>
       <button class="btn-primary" onclick="createClass()">Tạo</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Class -->
+<div class="modal-overlay" id="modal-edit-class">
+  <div class="modal">
+    <h3>Sửa lớp học</h3>
+    <input type="hidden" id="edit-class-id"/>
+    <div class="field"><label>Tên lớp</label><input type="text" id="edit-class-name" placeholder="Lớp HSK1 — Cơ bản"/></div>
+    <div class="field"><label>Mô tả</label><input type="text" id="edit-class-desc" placeholder="Tuỳ chọn..."/></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-edit-class')">Huỷ</button>
+      <button class="btn-primary" onclick="updateClass()">Lưu</button>
     </div>
   </div>
 </div>
@@ -394,19 +372,14 @@
     </div>
     <div class="field">
       <label>Giao cho</label>
-      <div class="assign-targets" id="assign-target-btns">
+        <div class="assign-targets" id="assign-target-btns">
         <button class="assign-btn active" data-target="class" onclick="selectAssignTarget(this,'class')">🏫 Lớp</button>
-        <button class="assign-btn" data-target="group" onclick="selectAssignTarget(this,'group')">👥 Nhóm</button>
         <button class="assign-btn" data-target="student" onclick="selectAssignTarget(this,'student')">👤 Học sinh</button>
       </div>
     </div>
     <div class="field" id="assign-class-field">
       <label>Chọn lớp</label>
       <div class="picker-list" id="assign-class-picker"></div>
-    </div>
-    <div class="field" id="assign-group-field" style="display:none">
-      <label>Chọn nhóm</label>
-      <div class="picker-list" id="assign-group-picker"></div>
     </div>
     <div class="field" id="assign-student-field" style="display:none">
       <label>Chọn học sinh</label>
@@ -416,6 +389,52 @@
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('modal-create-quiz')">Huỷ</button>
       <button class="btn-primary" onclick="createQuiz()">Tạo & Giao</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Quiz -->
+<div class="modal-overlay" id="modal-edit-quiz">
+  <div class="modal modal-wide">
+    <h3 id="edit-quiz-heading">Sửa bài quiz</h3>
+    <input type="hidden" id="edit-quiz-id"/>
+    <div class="field"><label>Tiêu đề</label><input type="text" id="edit-quiz-title" placeholder="Từ vựng HSK1 — Tuần 1"/></div>
+    <div class="field">
+      <label>Loại quiz</label>
+      <div class="assign-targets" style="margin-top:6px;">
+        <button class="assign-btn active" data-edit-type="homework" onclick="selectEditQuizType(this,'homework')">📝 Bài tập về nhà</button>
+        <button class="assign-btn" data-edit-type="quickquiz" onclick="selectEditQuizType(this,'quickquiz')">⚡ Kiểm tra nhanh</button>
+      </div>
+    </div>
+    <div class="field" id="edit-duration-field" style="display:none">
+      <label>Thời gian (giây)</label>
+      <input type="number" id="edit-quiz-duration" placeholder="300" min="30"/>
+    </div>
+    <div class="field">
+      <label>Chọn từ vựng</label>
+      <input type="text" id="edit-search-vocab-quiz" placeholder="Tìm từ..." oninput="filterEditVocabPicker()" style="margin-bottom:6px;width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;outline:none;"/>
+      <div class="picker-list" id="edit-vocab-picker-quiz"></div>
+      <p id="edit-vocab-pick-count" style="font-size:12px;color:var(--text3);margin-top:6px;">Chưa chọn từ nào</p>
+    </div>
+    <div class="field">
+      <label>Giao cho</label>
+      <div class="assign-targets" id="edit-assign-target-btns">
+        <button class="assign-btn active" data-edit-target="class" onclick="selectEditAssignTarget(this,'class')">🏫 Lớp</button>
+        <button class="assign-btn" data-edit-target="student" onclick="selectEditAssignTarget(this,'student')">👤 Học sinh</button>
+      </div>
+    </div>
+    <div class="field" id="edit-assign-class-field">
+      <label>Chọn lớp</label>
+      <div class="picker-list" id="edit-assign-class-picker"></div>
+    </div>
+    <div class="field" id="edit-assign-student-field" style="display:none">
+      <label>Chọn học sinh</label>
+      <div class="picker-list" id="edit-assign-student-picker"></div>
+    </div>
+    <div id="edit-quiz-msg" class="msg" style="display:none"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-edit-quiz')">Huỷ</button>
+      <button class="btn-primary" onclick="updateQuiz()">Lưu thay đổi</button>
     </div>
   </div>
 </div>
