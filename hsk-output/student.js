@@ -336,9 +336,12 @@ function renderVQ() {
   const cur = vqQuestions[vqIdx];
   const container = document.getElementById('vq-area');
   const prog = document.getElementById('vq-prog');
+  const overlay = document.querySelector('#vocab-quiz-overlay .hsk-overlay-inner');
   
   // Progress Bar
   if (prog) prog.style.width = `${(vqIdx / vqQuestions.length) * 100}%`;
+  if (overlay) overlay.scrollTop = 0;
+  if (container) container.scrollTop = 0;
   
   // Randomize mode: 0 = Hanzi to Meaning, 1 = Meaning to Hanzi
   vqCurrentMode = Math.random() > 0.5 ? 0 : 1;
@@ -411,6 +414,8 @@ function handleVQAns(btn, isCorrect) {
   }
   
   fb.style.display = 'block';
+  const isTouchMobile = window.matchMedia('(max-width: 480px), (hover: none) and (pointer: coarse)').matches;
+  const advanceDelay = isTouchMobile ? 650 : 1200;
   
   setTimeout(() => {
     vqIdx++;
@@ -419,7 +424,7 @@ function handleVQAns(btn, isCorrect) {
     } else {
       showVQResult();
     }
-  }, 1200);
+  }, advanceDelay);
 }
 
 function showVQResult() {
