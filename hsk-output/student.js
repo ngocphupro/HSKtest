@@ -620,33 +620,29 @@ function renderSQ() {
     const options = shuffle([cur, ...wrong]);
     
     container.innerHTML = `
-      <div class="question-card" style="margin-top:20px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border: none; background: rgba(255,255,255,0.85); padding:32px 24px 24px;">
+      <div class="question-card">
         <div class="q-label">${sqCurrentMode === 0 ? 'Câu này có nghĩa là gì?' : 'Dịch câu này sang tiếng Trung:'}</div>
         
         ${sqCurrentMode === 0 
-          ? `<div style="display:flex; justify-content:center; align-items:center; gap:15px;">
-               <div class="q-hanzi" style="font-size:32px; margin:0;">${cur.chinese}</div>
-             </div>`
-          : `<div style="cursor:pointer;" onmouseenter="speak('${cur.chinese.replace(/'/g, "\\'")}')" onclick="speak('${cur.chinese.replace(/'/g, "\\'")}')">
-               <div class="q-hanzi" style="font-size:24px; font-family:'DM Sans', sans-serif; color: var(--text); line-height:1.4;">${cur.meaning}</div>
-               <div style="font-size:16px; color:var(--text3); margin-top:8px;">${cur.pinyin}</div>
+          ? `<div class="q-hanzi">${cur.chinese}</div>`
+          : `<div class="q-text-mode" onclick="speak('${cur.chinese.replace(/'/g, "\\'")}')">
+               <strong>${cur.meaning}</strong>
+               <span>${cur.pinyin}</span>
              </div>`
         }
         
         <div class="q-num">Câu ${sqIdx + 1} / ${sqQuestions.length}</div>
       </div>
       
-      <div class="options-grid" style="margin-top:30px;">
+      <div class="options-grid">
         ${options.map(opt => `
-          <button class="opt-btn" style="border-color:var(--border);background:var(--surface);color:inherit;"
+          <button class="opt-btn"
             ${sqCurrentMode === 0 ? `onmouseenter="speak('${opt.chinese.replace(/'/g, "\\'")}')"` : ''}
             onclick="${sqCurrentMode === 0 ? `speak('${opt.chinese.replace(/'/g, "\\'")}'); ` : ''}handleSQAns(this, ${opt.id === cur.id})">
             ${sqCurrentMode === 0 
-              ? `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
-                   <span class="opt-main" style="font-size:15px;">${opt.meaning}</span>
-                   <span style="font-size:12px;color:var(--text3);">${opt.pinyin}</span>
-                 </div>`
-              : `<span style="font-size:18px; font-family:'Noto Serif SC',serif; font-weight:700; color:var(--text); display:block;">${opt.chinese}</span>`
+              ? `<span class="opt-main">${opt.meaning}</span>
+                 <span class="opt-pinyin">${opt.pinyin}</span>`
+              : `<span class="opt-hanzi">${opt.chinese}</span>`
             }
           </button>
         `).join('')}
@@ -679,20 +675,20 @@ function renderSQ() {
     const options = shuffle([{ hanzi: sqBlankTarget, pinyin: correctVocab ? correctVocab.pinyin : '', isCorrect: true }, ...wrongWords.map(w => ({ hanzi: w.hanzi, pinyin: w.pinyin, isCorrect: false }))]);
     
     container.innerHTML = `
-      <div class="question-card" style="margin-top:20px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border: none; background: rgba(255,255,255,0.85); padding:32px 24px 24px;">
-        <div class="q-label">Điền từ còn thiếu vào chỗ trống:</div>
-        <div style="cursor:pointer; margin-bottom:12px;" onmouseenter="speak('${cur.chinese.replace(/'/g, "\\'")}')" onclick="speak('${cur.chinese.replace(/'/g, "\\'")}')">
-          <div style="font-size:16px; color:var(--text2);">${cur.meaning}</div>
-          <div style="font-size:12px; color:var(--text3); margin-top:2px;">${cur.pinyin}</div>
+      <div class="question-card">
+        <div class="q-label">Điền từ còn thiếu:</div>
+        <div class="q-text-mode" onclick="speak('${cur.chinese.replace(/'/g, "\\'")}')">
+          <strong>${cur.meaning}</strong>
+          <span>${cur.pinyin}</span>
         </div>
-        <div class="q-hanzi" style="font-size:28px; line-height:1.6; margin:0;">${displayHtml}</div>
+        <div class="q-hanzi" style="font-size:clamp(20px, 5vh, 28px); line-height:1.4;">${displayHtml}</div>
         <div class="q-num">Câu ${sqIdx + 1} / ${sqQuestions.length}</div>
       </div>
       
-      <div class="options-grid" style="margin-top:30px;">
+      <div class="options-grid">
         ${options.map(opt => `
-          <button class="opt-btn" style="border-color:var(--border);background:var(--surface);color:inherit;" onclick="handleSQAns(this, ${opt.isCorrect})">
-            <span class="opt-main" style="font-size:24px;">${opt.hanzi}</span>
+          <button class="opt-btn" onclick="handleSQAns(this, ${opt.isCorrect})">
+            <span class="opt-main" style="font-size:20px;">${opt.hanzi}</span>
           </button>
         `).join('')}
       </div>
@@ -706,32 +702,26 @@ function renderSQ() {
     sqArrangeExpected = segments.map(s => s.text.trim()).join('');
     
     container.innerHTML = `
-      <div class="question-card" style="margin-top:20px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border: none; background: rgba(255,255,255,0.85); padding:32px 24px 24px;">
-        <div class="q-label">Sắp xếp các từ thành câu hoàn chỉnh:</div>
-        <div style="cursor:pointer; margin-top:8px; margin-bottom:20px;" onmouseenter="speak('${cur.chinese.replace(/'/g, "\\'")}')" onclick="speak('${cur.chinese.replace(/'/g, "\\'")}')">
-          <div style="font-size:18px; color:var(--text); font-weight:500;">${cur.meaning}</div>
-          <div style="font-size:13px; color:var(--text3); margin-top:2px;">${cur.pinyin}</div>
+      <div class="question-card">
+        <div class="q-label">Sắp xếp thành câu:</div>
+        <div class="q-text-mode" onclick="speak('${cur.chinese.replace(/'/g, "\\'")}')">
+          <strong>${cur.meaning}</strong>
+          <span>${cur.pinyin}</span>
         </div>
-        
-        <div id="arrange-dropzone" style="min-height:64px; border:1px dashed var(--border); border-radius:var(--r); padding:12px; display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; background:var(--surface);"></div>
-        
+        <div id="arrange-dropzone" style="min-height:44px; border:1px dashed var(--border); border-radius:var(--r); padding:8px; display:flex; flex-wrap:wrap; gap:6px; background:var(--surface);"></div>
         <div class="q-num">Câu ${sqIdx + 1} / ${sqQuestions.length}</div>
       </div>
       
-      <div id="arrange-bank" style="margin-top:28px; display:flex; flex-wrap:wrap; gap:10px; justify-content:center;">
-        ${sqArrangeSegments.map((seg, i) => {
-          const v = allVocab.find(vocab => vocab.hanzi === seg.text);
-          const py = v ? v.pinyin : '';
-          return `
-          <button id="arr-btn-${i}" class="opt-btn" style="border-color:var(--border);background:var(--surface);color:inherit;min-width:104px;padding:10px 14px;display:flex;flex-direction:column;align-items:center;text-align:center;" onclick="toggleArrangeWord(${i})">
-            <span style="font-size:20px;font-weight:700;line-height:1.1;">${seg.text}</span>
+      <div id="arrange-bank" style="display:flex; flex-wrap:wrap; gap:8px; justify-content:center; flex:1; align-content:flex-start; overflow-y:auto; padding:10px 0;">
+        ${sqArrangeSegments.map((seg, i) => `
+          <button id="arr-btn-${i}" class="opt-btn" style="width:auto; height:auto; min-height:40px; padding:6px 12px; display:flex; flex-direction:column; align-items:center;" onclick="toggleArrangeWord(${i})">
+            <span style="font-size:18px;font-weight:700;">${seg.text}</span>
           </button>
-          `;
-        }).join('')}
+        `).join('')}
       </div>
       
-      <div style="margin-top:24px; text-align:center;">
-        <button id="arrange-check-btn" class="btn-primary" style="padding:12px 30px; font-size:16px; opacity:0.5; pointer-events:none;" onclick="checkArrangeAns()">Kiểm tra</button>
+      <div style="text-align:center; padding:10px 0;">
+        <button id="arrange-check-btn" class="btn-primary" style="padding:10px 30px; opacity:0.5; pointer-events:none;" onclick="checkArrangeAns()">Kiểm tra</button>
       </div>
       <div id="vq-feedback" class="feedback"></div>
     `;
@@ -1508,11 +1498,9 @@ function renderQuizQ(idx) {
       ${opts.map(o=>`
         <button class="opt-btn" data-is-correct="${o.id===cur.id}" 
           onclick="handleQuizAns(this,${o.id===cur.id},${idx})">
-          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
-            <span class="opt-main">${o.meaning}</span>
-            <span style="font-size:12px;color:var(--text3);">(${o.pinyin})</span>
-            <span class="btn-speak" style="font-size:14px;background:none;border:none;cursor:pointer;" onclick="event.stopPropagation(); speak('${o.hanzi.replace(/'/g, "\\'")}')">🔊</span>
-          </div>
+          <span class="opt-main">${o.meaning}</span>
+          <span class="opt-pinyin">(${o.pinyin})</span>
+          <span class="btn-speak" onclick="event.stopPropagation(); speak('${o.hanzi.replace(/'/g, "\\'")}')">🔊</span>
         </button>`).join('')}
     </div>
     <div class="feedback" id="quiz-fb"></div>
@@ -1675,11 +1663,9 @@ function renderPracticeQ(idx) {
         <button class="opt-btn" data-is-correct="${o.id===cur.id}" 
           onclick="handlePracticeAns(this,${o.id===cur.id},${idx})">
           ${isMeaning
-            ? `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
-                 <span class="opt-main">${o.meaning}</span>
-                 <span style="font-size:12px;color:var(--text3);">(${o.pinyin})</span>
-                 <span class="btn-speak" style="font-size:14px;background:none;border:none;cursor:pointer;" onclick="event.stopPropagation(); speak('${o.hanzi.replace(/'/g, "\\'")}')">🔊</span>
-               </div>`
+            ? `<span class="opt-main">${o.meaning}</span>
+               <span class="opt-pinyin">(${o.pinyin})</span>
+               <span class="btn-speak" onclick="event.stopPropagation(); speak('${o.hanzi.replace(/'/g, "\\'")}')">🔊</span>`
             : `<span class="opt-hanzi">${o.hanzi}</span>`
           }
         </button>`).join('')}
