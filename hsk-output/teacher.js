@@ -27,6 +27,12 @@ function hskBadge(level) {
   return `<span class="badge ${map[level] || 'badge-hsk1'}">HSK ${level}</span>`;
 }
 function fmtDate(dt) { return dt ? new Date(dt).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'; }
+function fmtTime(s) {
+  if (!s) return '—';
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+}
 
 // ── TTS ──
 function speak(text) {
@@ -62,8 +68,9 @@ function showPanel(id) {
   closeSidebar();
   if (id === 'hsk-approve') loadHskRequests();
   if (id === 'announcements') loadAnnouncements();
-  if (id === 'classes') loadLessons();
+  if (id === 'classes') { loadClasses(); loadQuizzes(); }
   if (id === 'sentences') loadSentencesT();
+  if (id === 'results') { loadResults(); loadTeacherLeaderboard(); }
 }
 
 function openSidebar() { document.getElementById('sidebar').classList.add('open'); document.getElementById('mobile-overlay').classList.add('open'); }
@@ -433,129 +440,7 @@ async function loadLessons() {
   `;
 }
 
-function openCreateLesson() {
-  const sel = document.getElementById('lesson-class-id');
-  sel.innerHTML = '<option value="">-- Lưu vào thư viện (Mẫu) --</option>' + allClasses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-  
-  selectedVocabIds.clear();
-  const picker = document.getElementById('lesson-vocab-picker');
-  // Order allVocab by level for the picker
-  const pickerList = [...allVocab].sort((a,b) => a.hsk_level - b.hsk_level);
-  picker.innerHTML = pickerList.map(v => `
-    <div class="picker-item" onclick="togglePick(this,'vocab',${v.id})">
-      <span style="font-family:'Noto Serif SC',serif">${v.hanzi}</span>
-      <span class="pi-name">${v.pinyin} (HSK ${v.hsk_level})</span>
-      <span class="pi-check">✓</span>
-    </div>`).join('');
-  openModal('modal-create-lesson');
-}
-
-let activeTemplateId = null;
-function openAssignLesson(lessonId) {
-  activeTemplateId = lessonId;
-  const sel = document.getElementById('assign-lesson-class-id');
-  sel.innerHTML = allClasses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-  openModal('modal-assign-lesson');
-}
-
-async function assignLessonToClass() {
-  const classId = document.getElementById('assign-lesson-class-id').value;
-  if (!classId || !activeTemplateId) return;
-  
-  // Clone the lesson template to the class
-  const { data: template } = await sb.from('lessons').select('*').eq('id', activeTemplateId).single();
-  const { data: vocab } = await sb.from('lesson_vocab').select('vocab_id, position').eq('lesson_id', activeTemplateId);
-  
-  const { data: newLesson } = await sb.from('lessons').insert({
-    class_id: classId,
-    title: template.title,
-    created_by: currentUser.id
-  }).select().single();
-  
-  const rows = (vocab || []).map(v => ({ lesson_id: newLesson.id, vocab_id: v.vocab_id, position: v.position }));
-  await sb.from('lesson_vocab').insert(rows);
-  
-  closeModal('modal-assign-lesson');
-  await loadLessons();
-  showToast('✓ Đã thêm bài học vào lớp');
-}
-
-async function createLesson() {
-  const classVal = document.getElementById('lesson-class-id').value;
-  const classId  = classVal === "" ? null : parseInt(classVal);
-  const title    = document.getElementById('lesson-title').value.trim();
-  if (!title || !selectedVocabIds.size) return alert('Nhập tiêu đề và chọn từ vựng');
-  
-  const { data: lesson, error } = await sb.from('lessons').insert({
-    class_id: classId,
-    title,
-    created_by: currentUser.id
-  }).select().single();
-  
-  if (error) { alert('Lỗi: ' + error.message); return; }
-  
-  const rows = [...selectedVocabIds].map((vid, idx) => ({ lesson_id: lesson.id, vocab_id: vid, position: idx + 1 }));
-  await sb.from('lesson_vocab').insert(rows);
-  
-  closeModal('modal-create-lesson');
-  await loadLessons();
-  showToast('✓ Đã tạo bài học ' + title);
-}
-
-async function deleteLesson(id, title) {
-  if (!confirm(`Bạn có chắc muốn xoá bài học "${title}"?`)) return;
-  
-  // 1. Delete associated vocab mapping first
-  await sb.from('lesson_vocab').delete().eq('lesson_id', id);
-  // 2. Delete the lesson itself
-  const { error } = await sb.from('lessons').delete().eq('id', id);
-  
-  if (error) { alert('Lỗi: ' + error.message); return; }
-  showToast(`✓ Đã xoá bài học "${title}"`);
-  await loadLessons();
-}
-
-async function openEditLesson(lessonId) {
-  const { data: lesson } = await sb.from('lessons').select('*, lesson_vocab(vocab_id)').eq('id', lessonId).single();
-  if (!lesson) return;
-  
-  document.getElementById('edit-lesson-id').value = lesson.id;
-  document.getElementById('edit-lesson-title').value = lesson.title;
-  
-  selectedVocabIds.clear();
-  (lesson.lesson_vocab || []).forEach(lv => selectedVocabIds.add(lv.vocab_id));
-  
-  const picker = document.getElementById('edit-lesson-vocab-picker');
-  picker.innerHTML = allVocab.map(v => {
-    const isSelected = selectedVocabIds.has(v.id);
-    return `
-      <div class="picker-item ${isSelected ? 'selected' : ''}" onclick="togglePick(this,'vocab',${v.id})">
-        <span style="font-family:'Noto Serif SC',serif">${v.hanzi}</span>
-        <span class="pi-name">${v.pinyin}</span>
-        <span class="pi-check">✓</span>
-      </div>`;
-  }).join('');
-  
-  openModal('modal-edit-lesson');
-}
-
-async function updateLesson() {
-  const id = parseInt(document.getElementById('edit-lesson-id').value);
-  const title = document.getElementById('edit-lesson-title').value.trim();
-  if (!title || !selectedVocabIds.size) return alert('Nhập tiêu đề và chọn từ vựng');
-  
-  // 1. Update title
-  await sb.from('lessons').update({ title }).eq('id', id);
-  
-  // 2. Sync vocab
-  await sb.from('lesson_vocab').delete().eq('lesson_id', id);
-  const rows = [...selectedVocabIds].map((vid, idx) => ({ lesson_id: id, vocab_id: vid, position: idx + 1 }));
-  await sb.from('lesson_vocab').insert(rows);
-  
-  closeModal('modal-edit-lesson');
-  await loadLessons();
-  showToast('✓ Đã cập nhật bài học');
-}
+// LESSON FUNCTIONS REMOVED - Lessons are no longer used, only quizzes
 
 // ══════════════════════════════════════════
 //  VOCAB
@@ -797,9 +682,12 @@ async function importVocab() {
 async function loadQuizzes() {
   const { data } = await sb.from('quizzes').select('*').order('created_at', { ascending: false });
   allQuizzes = data || [];
-  const { data: results } = await sb.from('quiz_results').select('quiz_id');
+  const { data: results } = await sb.from('quiz_results').select('quiz_id, student_id');
   const submitMap = {};
-  (results || []).forEach(r => { submitMap[r.quiz_id] = (submitMap[r.quiz_id] || 0) + 1; });
+  (results || []).forEach(r => {
+    if (!submitMap[r.quiz_id]) submitMap[r.quiz_id] = new Set();
+    submitMap[r.quiz_id].add(r.student_id);
+  });
   const { data: assigns } = await sb.from('quiz_assignments').select('quiz_id');
   const assignMap = {};
   (assigns || []).forEach(a => { assignMap[a.quiz_id] = (assignMap[a.quiz_id] || 0) + 1; });
@@ -807,7 +695,7 @@ async function loadQuizzes() {
   const el = document.getElementById('quiz-list');
   if (!allQuizzes.length) { el.innerHTML = '<div class="empty-state"><span class="empty-icon">✏️</span>Chưa có quiz nào.</div>'; return; }
   el.innerHTML = allQuizzes.map(q => {
-    const submitted = submitMap[q.id] || 0;
+    const submitted = submitMap[q.id] ? submitMap[q.id].size : 0;
     const total = assignMap[q.id] || 0;
     const pct = total ? Math.round(submitted / total * 100) : 0;
     const isQuick = q.type === 'quickquiz';
@@ -1183,7 +1071,10 @@ async function loadResults() {
             <span class="${cls}" style="font-size:13px;font-weight:700;">${pct}%</span>
           </div>
         </td>
-        <td style="font-size:12px;color:var(--text3);">${fmtDate(r.completed_at)}</td>
+        <td style="font-size:12px;color:var(--text3);">
+          ${fmtTime(r.time_spent)}<br>
+          <span style="font-size:10px;">${fmtDate(r.completed_at)}</span>
+        </td>
       </tr>`;
   }).join('');
 
@@ -1385,36 +1276,207 @@ async function viewQuizResults(quizId) {
   
   // 1. Get all assigned students
   const { data: assignments } = await sb.from('quiz_assignments').select('student_id, profiles(full_name)').eq('quiz_id', quizId);
-  // 2. Get results
-  const { data: results } = await sb.from('quiz_results').select('*').eq('quiz_id', quizId);
+  // 2. Get all results for this quiz, sorted by time
+  const { data: results } = await sb.from('quiz_results').select('*').eq('quiz_id', quizId).order('completed_at', { ascending: false });
   
   if (!assignments?.length) {
     body.innerHTML = '<tr><td colspan="4" class="empty-state">Chưa giao cho học sinh nào.</td></tr>';
     return;
   }
   
-  const resultByStudent = {};
-  (results || []).forEach(r => { resultByStudent[r.student_id] = r; });
+  // Group results by student
+  const resultsByStudent = {};
+  (results || []).forEach(r => {
+    if (!resultsByStudent[r.student_id]) resultsByStudent[r.student_id] = [];
+    resultsByStudent[r.student_id].push(r);
+  });
   
-  body.innerHTML = assignments.map(a => {
-    const res = resultByStudent[a.student_id];
-    const isDone = !!res;
-    const scoreText = isDone ? `${res.score}/${res.total}` : '—';
-    const pct = isDone ? Math.round(res.score / res.total * 100) : 0;
-    const scoreColor = isDone ? (pct >= 80 ? 'var(--accent)' : pct >= 50 ? 'var(--gold)' : 'var(--primary)') : 'var(--text3)';
+  const rows = [];
+  // Sort assignments by name
+  assignments.sort((a, b) => (a.profiles?.full_name || '').localeCompare(b.profiles?.full_name || ''));
+
+  assignments.forEach(a => {
+    const studentResults = resultsByStudent[a.student_id] || [];
+    if (studentResults.length === 0) {
+      rows.push(`
+        <tr>
+          <td><div style="font-weight:600;">${a.profiles?.full_name || 'N/A'}</div></td>
+          <td><span class="badge" style="background:var(--surface2);color:var(--text3)">⏳ Chưa làm</span></td>
+          <td style="font-weight:700;color:var(--text3)">—</td>
+          <td style="font-size:12px;color:var(--text3)">—</td>
+        </tr>`);
+    } else {
+      // Find best result: Highest score primary, lowest time secondary
+      const sortedByScore = [...studentResults].sort((x, y) => {
+        const scoreX = x.score / x.total;
+        const scoreY = y.score / y.total;
+        if (scoreX !== scoreY) return scoreY - scoreX;
+        return (x.time_spent || 999999) - (y.time_spent || 999999);
+      });
+      const best = sortedByScore[0];
+      const hasHistory = studentResults.length > 1;
+      
+      const pct = Math.round(best.score / best.total * 100);
+      const scoreColor = pct >= 80 ? 'var(--accent)' : pct >= 50 ? 'var(--gold)' : 'var(--primary)';
+      
+      rows.push(`
+        <tr onclick="${hasHistory ? `toggleHistory('${a.student_id}')` : ''}" style="${hasHistory ? 'cursor:pointer' : ''}" title="${hasHistory ? 'Bấm để xem lịch sử làm bài' : ''}">
+          <td>
+            <div style="font-weight:600; display:flex; align-items:center; gap:6px;">
+              ${a.profiles?.full_name || 'N/A'} 
+              ${hasHistory ? `<span style="font-size:10px; color:var(--accent); background:var(--accent-bg); padding:1px 4px; border-radius:4px;">+${studentResults.length - 1} lượt</span>` : ''}
+            </div>
+          </td>
+          <td><span class="badge badge-done" style="background:var(--accent-bg);color:var(--accent)">✓ Đã nộp</span></td>
+          <td style="font-weight:700;color:${scoreColor}">${best.score}/${best.total} <span style="font-size:10px; font-weight:400; color:var(--text3)">(Cao nhất · ${fmtTime(best.time_spent)})</span></td>
+          <td style="font-size:12px;color:var(--text3)">${fmtDate(best.completed_at)}</td>
+        </tr>`);
+        
+      if (hasHistory) {
+        rows.push(`
+          <tr id="history-${a.student_id}" style="display:none; background:var(--surface2);">
+            <td colspan="4" style="padding:0;">
+              <div style="padding:10px 15px; border-left:3px solid var(--accent);">
+                <div style="font-size:11px; font-weight:700; color:var(--text2); margin-bottom:6px; text-transform:uppercase;">Lịch sử làm bài:</div>
+                ${studentResults.map((res, idx) => {
+                  const rPct = Math.round(res.score / res.total * 100);
+                  const isBest = res.id === best.id;
+                  return `
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; padding:6px 0; border-bottom:1px solid var(--border);">
+                      <span style="color:var(--text3)">Lần ${studentResults.length - idx}</span>
+                      <span style="font-weight:600; color:${rPct >= 80 ? 'var(--accent)' : rPct >= 50 ? 'var(--gold)' : 'var(--primary)'}">${res.score}/${res.total} (${fmtTime(res.time_spent)}) ${isBest ? '⭐' : ''}</span>
+                      <span style="color:var(--text3); font-size:11px;">${fmtDate(res.completed_at)}</span>
+                    </div>`;
+                }).join('')}
+              </div>
+            </td>
+          </tr>`);
+      }
+    }
+  });
+  
+  body.innerHTML = rows.join('');
+}
+
+// ══════════════════════════════════════════
+//  TEACHER LEADERBOARD
+// ══════════════════════════════════════════
+let currentTeacherLeaderboardMode = 'xp';
+
+function switchTeacherLeaderboard(btn, mode) {
+  currentTeacherLeaderboardMode = mode;
+  document.querySelectorAll('#panel-results .mode-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadTeacherLeaderboard();
+}
+
+async function loadTeacherLeaderboard() {
+  const listEl = document.getElementById('teacher-leaderboard-list');
+  const levelFilter = document.getElementById('filter-leaderboard-level').value;
+  
+  if (!listEl) return;
+  listEl.innerHTML = '<p class="loading">Đang tải dữ liệu xếp hạng...</p>';
+
+  try {
+    // 1. Get student level mappings
+    const { data: levels } = await sb.from('hsk_student_levels').select('student_id, hsk_level');
+    const levelMap = {};
+    (levels || []).forEach(lp => levelMap[lp.student_id] = lp.hsk_level);
     
-    return `
-      <tr>
-        <td>
-          <div style="font-weight:600;">${a.profiles?.full_name || 'N/A'}</div>
-        </td>
-        <td>
-          ${isDone 
-            ? '<span class="badge badge-done" style="background:var(--accent-bg);color:var(--accent)">✓ Đã nộp</span>' 
-            : '<span class="badge" style="background:var(--surface2);color:var(--text3)">⏳ Chưa làm</span>'}
-        </td>
-        <td style="font-weight:700;color:${scoreColor}">${scoreText}</td>
-        <td style="font-size:12px;color:var(--text3)">${isDone ? fmtDate(res.completed_at) : '—'}</td>
-      </tr>`;
-  }).join('');
+    // 2. Get quiz results
+    const { data: allResults, error } = await sb.from('quiz_results').select('*');
+    if (error) throw error;
+
+    // 3. Get student profiles
+    const { data: allProfiles } = await sb.from('profiles').select('id, full_name').eq('role', 'student');
+    const profileMap = {};
+    (allProfiles || []).forEach(p => profileMap[p.id] = p.full_name);
+
+    let ranking = [];
+
+    allProfiles.forEach(p => {
+      const sid = p.id;
+      const sLevel = levelMap[sid] || 1;
+      
+      // Filter by level if requested
+      if (levelFilter !== 'all' && String(sLevel) !== String(levelFilter)) return;
+
+      const studentResults = allResults.filter(r => r.student_id === sid);
+      if (studentResults.length === 0 && currentTeacherLeaderboardMode !== 'mastery') return;
+
+      if (currentTeacherLeaderboardMode === 'xp') {
+        const xp = studentResults.reduce((sum, r) => sum + (r.score || 0), 0);
+        if (xp > 0) ranking.push({ id: sid, name: p.full_name, value: xp, unit: 'XP', level: sLevel });
+      } 
+      else if (currentTeacherLeaderboardMode === 'accuracy') {
+        const valid = studentResults.filter(r => r.total > 0);
+        if (valid.length >= 1) {
+          const avg = Math.round(valid.reduce((sum, r) => sum + (r.score / r.total * 100), 0) / valid.length);
+          ranking.push({ id: sid, name: p.full_name, value: avg, unit: '%', level: sLevel });
+        }
+      }
+      else if (currentTeacherLeaderboardMode === 'mastery') {
+        const masterCount = new Set(studentResults.filter(r => (r.score / r.total) >= 0.8).map(r => r.quiz_id)).size;
+        ranking.push({ id: sid, name: p.full_name, value: masterCount, unit: 'bài', level: sLevel });
+      }
+      else if (currentTeacherLeaderboardMode === 'streak') {
+        const dates = new Set(studentResults.map(r => new Date(r.completed_at).toLocaleDateString('en-CA')));
+        let streak = 0;
+        let checkDate = new Date();
+        for (let i = 0; i < 100; i++) {
+          const ds = checkDate.toLocaleDateString('en-CA');
+          if (dates.has(ds)) { streak++; checkDate.setDate(checkDate.getDate() - 1); }
+          else { if (i === 0) { checkDate.setDate(checkDate.getDate() - 1); continue; } break; }
+        }
+        if (streak > 0) ranking.push({ id: sid, name: p.full_name, value: streak, unit: 'ngày', level: sLevel });
+      }
+      else if (currentTeacherLeaderboardMode === 'speed') {
+        const valid = studentResults.filter(r => r.time_spent > 0 && r.total > 0);
+        if (valid.length >= 1) {
+          const avg = parseFloat((valid.reduce((sum, r) => sum + (r.time_spent / r.total), 0) / valid.length).toFixed(1));
+          ranking.push({ id: sid, name: p.full_name, value: avg, unit: 's/câu', level: sLevel });
+        }
+      }
+    });
+
+    // Sort
+    if (currentTeacherLeaderboardMode === 'speed') {
+      ranking.sort((a, b) => a.value - b.value);
+    } else {
+      ranking.sort((a, b) => b.value - a.value);
+    }
+
+    const topList = ranking.slice(0, 20); // Teachers see top 20
+    if (topList.length === 0) {
+      listEl.innerHTML = '<div class="empty-state">Không có dữ liệu cho mục này.</div>';
+      return;
+    }
+
+    listEl.innerHTML = `
+      <div class="leaderboard-container">
+        ${topList.map((item, index) => {
+          const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : (index + 1);
+          const color = avatarColor(item.name);
+          return `
+            <div class="leaderboard-item">
+              <div class="rank-num">${medal}</div>
+              <div class="stu-avatar" style="background:${color}; width:36px; height:36px; font-size:13px;">${initials(item.name)}</div>
+              <div class="stu-name-wrap">
+                <div class="stu-name">${item.name}</div>
+                <div class="stu-level-tag">HSK ${item.level}</div>
+              </div>
+              <div class="rank-value">
+                <strong>${item.value}</strong>
+                <span>${item.unit}</span>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+  } catch (err) {
+    console.error("Teacher Leaderboard error:", err);
+    listEl.innerHTML = '<div class="empty-state">Lỗi tải dữ liệu.</div>';
+  }
 }

@@ -23,18 +23,40 @@ let quizCorrect     = 0;
 let quizTimerInterval = null;
 let quizTimerLeft   = 0;
 let quizTimerTotal  = 0;
+let quizStartTime   = null;
 let filteredVocab  = [];
 let vqQuestions    = [];
 let vqIdx          = 0;
 let vqScore        = 0;
 let vqCurrentMode  = 0; // 0: Hanzi->Meaning, 1: Meaning->Hanzi
 let vqAnswered     = false;
+let isHomeworkRetake = false;
+let homeworkAutoTimer = null;
+let homeworkQTimerLeft = 10;
 
 const AVATAR_COLORS = ['#C84B31','#3D6B4F','#2A5FA5','#6B3FA0','#C08830','#1F7A4D','#8B4513','#2E86C1'];
 function avatarColor(name) { let h=0; for(let c of name) h=(h+c.charCodeAt(0))%AVATAR_COLORS.length; return AVATAR_COLORS[h]; }
 function initials(name) { return name.trim().split(' ').slice(-2).map(w=>w[0]).join('').toUpperCase().slice(0,2); }
 function shuffle(a) { const b=[...a]; for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];} return b; }
 function fmtDate(dt) { return dt ? new Date(dt).toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—'; }
+function fmtTime(s) {
+  if (!s) return '—';
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+function toggleStudentHistory(qid) {
+  const el = document.getElementById(`stu-history-${qid}`);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // ── TTS ──
 function speak(text) {
@@ -45,6 +67,8 @@ function speak(text) {
   ut.rate = 0.8;
   window.speechSynthesis.speak(ut);
 }
+
+
 
 // ── Init ──
 (async () => {
@@ -355,6 +379,7 @@ function renderVQ() {
   vqCurrentMode = Math.random() > 0.5 ? 0 : 1;
   vqAnswered = false;
   
+  // Filter wrong answers: get 3 random different from current
   const wrong = shuffle(allVocab.filter(v => v.id !== cur.id)).slice(0, 3);
   const options = shuffle([cur, ...wrong]);
   
@@ -366,10 +391,9 @@ function renderVQ() {
         ? `<div style="display:flex; justify-content:center; align-items:center;">
              <div class="q-hanzi" style="margin:0;">${cur.hanzi}</div>
            </div>`
-        : `<div class="q-hanzi" style="font-size:32px; font-family:'DM Sans', sans-serif; color: var(--text);">${cur.meaning}</div>
-           <div style="display:flex; justify-content:center; align-items:center; gap:8px; margin-top:8px;">
-             <div class="q-pinyin" style="font-size:16px; color:var(--text3); font-family:'DM Sans', sans-serif; margin:0;">${cur.pinyin}</div>
-             <button class="btn-speak" style="width:34px;height:34px;font-size:16px;" onclick="speak('${cur.hanzi.replace(/'/g, "\\'")}')">🔊</button>
+        : `<div style="cursor:pointer;" onmouseenter="speak('${cur.hanzi.replace(/'/g, "\\'")}')">
+             <div class="q-hanzi" style="font-size:32px; font-family:'DM Sans', sans-serif; color: var(--text);">${cur.meaning}</div>
+             <div style="font-size:16px; color:var(--text3); margin-top:8px;">${cur.pinyin}</div>
            </div>`
       }
       
@@ -379,12 +403,13 @@ function renderVQ() {
     <div class="options-grid" style="margin-top:30px;">
       ${options.map(opt => `
         <button type="button" class="opt-btn" style="border-color:var(--border);background:var(--surface);color:inherit;"
-          ${vqCurrentMode === 0
-            ? `onmouseenter="speak('${opt.hanzi.replace(/'/g, "\\'")}')" onclick="speak('${opt.hanzi.replace(/'/g, "\\'")}'); handleVQAns(this, ${opt.id === cur.id})"`
-            : `onclick="handleVQAns(this, ${opt.id === cur.id})"`}>
+          ${vqCurrentMode === 0 ? `onmouseenter="speak('${opt.hanzi.replace(/'/g, "\\'")}')"` : ''}
+          onclick="${vqCurrentMode === 0 ? `speak('${opt.hanzi.replace(/'/g, "\\'")}'); ` : ''}handleVQAns(this, ${opt.id === cur.id})">
           ${vqCurrentMode === 0 
-            ? `<span class="opt-main">${opt.meaning}</span>
-               <span class="opt-pinyin">${opt.pinyin}</span>`
+            ? `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+                 <span class="opt-main">${opt.meaning}</span>
+                 <span style="font-size:12px;color:var(--text3);">${opt.pinyin}</span>
+               </div>`
             : `<span class="opt-main" style="font-size:24px;">${opt.hanzi}</span>`
           }
         </button>
@@ -423,7 +448,7 @@ function handleVQAns(btn, isCorrect) {
   
   fb.style.display = 'block';
   const isTouchMobile = window.matchMedia('(max-width: 480px), (hover: none) and (pointer: coarse)').matches;
-  const advanceDelay = isTouchMobile ? 650 : 1200;
+  const advanceDelay = 1000;
   
   setTimeout(() => {
     vqIdx++;
@@ -447,7 +472,10 @@ function showVQResult() {
       <div style="font-size:80px;margin-bottom:20px;">${pct >= 80 ? '🏆' : pct >= 50 ? '👏' : '📚'}</div>
       <h2 style="font-family:'DM Serif Display',serif;font-size:32px;margin-bottom:10px;">Hoàn thành!</h2>
       <p style="color:var(--text2);font-size:18px;margin-bottom:40px;">Bạn trả lời đúng <strong>${vqScore}/${vqQuestions.length}</strong> câu (${pct}%).</p>
-      <button class="btn-primary" style="padding:15px 40px;font-size:16px;" onclick="exitVocabQuiz()">Quay lại Từ điển</button>
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+        <button class="btn-primary" style="padding:15px 30px;font-size:16px;background:var(--blue);" onclick="renderVQSetup()">🔄 Ôn tập lại</button>
+        <button class="btn-ghost" style="padding:15px 30px;font-size:16px;border:1px solid var(--border);" onclick="exitVocabQuiz()">← Quay lại Từ điển</button>
+      </div>
     </div>
   `;
 }
@@ -587,6 +615,7 @@ function renderSQ() {
   }
   
   if (sqCurrentMode === 0 || sqCurrentMode === 1) {
+    // Filter wrong sentences: get 3 random different from current
     const wrong = shuffle(allSentences.filter(s => s.id !== cur.id)).slice(0, 3);
     const options = shuffle([cur, ...wrong]);
     
@@ -598,10 +627,9 @@ function renderSQ() {
           ? `<div style="display:flex; justify-content:center; align-items:center; gap:15px;">
                <div class="q-hanzi" style="font-size:32px; margin:0;">${cur.chinese}</div>
              </div>`
-          : `<div class="q-hanzi" style="font-size:24px; font-family:'DM Sans', sans-serif; color: var(--text); line-height:1.4;">${cur.meaning}</div>
-             <div style="display:flex; justify-content:center; align-items:center; gap:8px; margin-top:8px;">
-               <div class="q-pinyin" style="font-size:16px; color:var(--text3); font-family:'DM Sans', sans-serif; margin:0;">${cur.pinyin}</div>
-               <button class="btn-speak" style="width:34px;height:34px;font-size:16px;" onclick="speak('${cur.chinese.replace(/'/g, "\\'")}')">🔊</button>
+          : `<div style="cursor:pointer;" onmouseenter="speak('${cur.chinese.replace(/'/g, "\\'")}')" onclick="speak('${cur.chinese.replace(/'/g, "\\'")}')">
+               <div class="q-hanzi" style="font-size:24px; font-family:'DM Sans', sans-serif; color: var(--text); line-height:1.4;">${cur.meaning}</div>
+               <div style="font-size:16px; color:var(--text3); margin-top:8px;">${cur.pinyin}</div>
              </div>`
         }
         
@@ -611,13 +639,14 @@ function renderSQ() {
       <div class="options-grid" style="margin-top:30px;">
         ${options.map(opt => `
           <button class="opt-btn" style="border-color:var(--border);background:var(--surface);color:inherit;"
-            ${sqCurrentMode === 0
-              ? `onmouseenter="speak('${opt.chinese.replace(/'/g, "\\'")}')" onclick="speak('${opt.chinese.replace(/'/g, "\\'")}'); handleSQAns(this, ${opt.id === cur.id})"`
-              : `onclick="handleSQAns(this, ${opt.id === cur.id})"`}>
+            ${sqCurrentMode === 0 ? `onmouseenter="speak('${opt.chinese.replace(/'/g, "\\'")}')"` : ''}
+            onclick="${sqCurrentMode === 0 ? `speak('${opt.chinese.replace(/'/g, "\\'")}'); ` : ''}handleSQAns(this, ${opt.id === cur.id})">
             ${sqCurrentMode === 0 
-              ? `<span class="opt-main" style="font-size:15px;">${opt.meaning}</span>
-                 <span class="opt-pinyin" style="font-size:12px;">${opt.pinyin}</span>`
-              : `<span class="opt-main" style="font-size:18px;">${opt.chinese}</span>`
+              ? `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+                   <span class="opt-main" style="font-size:15px;">${opt.meaning}</span>
+                   <span style="font-size:12px;color:var(--text3);">${opt.pinyin}</span>
+                 </div>`
+              : `<span style="font-size:18px; font-family:'Noto Serif SC',serif; font-weight:700; color:var(--text); display:block;">${opt.chinese}</span>`
             }
           </button>
         `).join('')}
@@ -639,9 +668,12 @@ function renderSQ() {
       }
     }
     
-    // Attempt to get wrong options from allVocab, fallback to random other words
+    // Get wrong options: any word except the blank target
     let wrongWords = allVocab.filter(v => v.hanzi !== sqBlankTarget);
-    if (wrongWords.length < 3) wrongWords = [{hanzi:'的', pinyin:'de'}, {hanzi:'是', pinyin:'shì'}, {hanzi:'在', pinyin:'zài'}];
+    // Fallback if not enough options
+    if (wrongWords.length < 3) {
+      wrongWords = [{hanzi:'的', pinyin:'de'}, {hanzi:'是', pinyin:'shì'}, {hanzi:'在', pinyin:'zài'}];
+    }
     wrongWords = shuffle(wrongWords).slice(0, 3);
     const correctVocab = allVocab.find(v => v.hanzi === sqBlankTarget);
     const options = shuffle([{ hanzi: sqBlankTarget, pinyin: correctVocab ? correctVocab.pinyin : '', isCorrect: true }, ...wrongWords.map(w => ({ hanzi: w.hanzi, pinyin: w.pinyin, isCorrect: false }))]);
@@ -649,14 +681,17 @@ function renderSQ() {
     container.innerHTML = `
       <div class="question-card" style="margin-top:20px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border: none; background: rgba(255,255,255,0.85); padding:32px 24px 24px;">
         <div class="q-label">Điền từ còn thiếu vào chỗ trống:</div>
-        <div style="font-size:16px; color:var(--text2); margin-bottom:12px;">${cur.meaning}</div>
+        <div style="cursor:pointer; margin-bottom:12px;" onmouseenter="speak('${cur.chinese.replace(/'/g, "\\'")}')" onclick="speak('${cur.chinese.replace(/'/g, "\\'")}')">
+          <div style="font-size:16px; color:var(--text2);">${cur.meaning}</div>
+          <div style="font-size:12px; color:var(--text3); margin-top:2px;">${cur.pinyin}</div>
+        </div>
         <div class="q-hanzi" style="font-size:28px; line-height:1.6; margin:0;">${displayHtml}</div>
         <div class="q-num">Câu ${sqIdx + 1} / ${sqQuestions.length}</div>
       </div>
       
       <div class="options-grid" style="margin-top:30px;">
         ${options.map(opt => `
-          <button class="opt-btn" style="border-color:var(--border);background:var(--surface);color:inherit;" onclick="speak('${opt.hanzi.replace(/'/g, "\\'")}'); handleSQAns(this, ${opt.isCorrect})">
+          <button class="opt-btn" style="border-color:var(--border);background:var(--surface);color:inherit;" onclick="handleSQAns(this, ${opt.isCorrect})">
             <span class="opt-main" style="font-size:24px;">${opt.hanzi}</span>
           </button>
         `).join('')}
@@ -673,7 +708,10 @@ function renderSQ() {
     container.innerHTML = `
       <div class="question-card" style="margin-top:20px; box-shadow: 0 15px 40px rgba(0,0,0,0.08); border: none; background: rgba(255,255,255,0.85); padding:32px 24px 24px;">
         <div class="q-label">Sắp xếp các từ thành câu hoàn chỉnh:</div>
-        <div style="font-size:18px; color:var(--text); margin-top:8px; margin-bottom:20px; font-weight:500;">${cur.meaning}</div>
+        <div style="cursor:pointer; margin-top:8px; margin-bottom:20px;" onmouseenter="speak('${cur.chinese.replace(/'/g, "\\'")}')" onclick="speak('${cur.chinese.replace(/'/g, "\\'")}')">
+          <div style="font-size:18px; color:var(--text); font-weight:500;">${cur.meaning}</div>
+          <div style="font-size:13px; color:var(--text3); margin-top:2px;">${cur.pinyin}</div>
+        </div>
         
         <div id="arrange-dropzone" style="min-height:64px; border:1px dashed var(--border); border-radius:var(--r); padding:12px; display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; background:var(--surface);"></div>
         
@@ -687,7 +725,6 @@ function renderSQ() {
           return `
           <button id="arr-btn-${i}" class="opt-btn" style="border-color:var(--border);background:var(--surface);color:inherit;min-width:104px;padding:10px 14px;display:flex;flex-direction:column;align-items:center;text-align:center;" onclick="toggleArrangeWord(${i})">
             <span style="font-size:20px;font-weight:700;line-height:1.1;">${seg.text}</span>
-            ${py ? `<span style="font-size:12px; color:var(--text3); margin-top:3px;">${py}</span>` : ''}
           </button>
           `;
         }).join('')}
@@ -702,7 +739,7 @@ function renderSQ() {
 }
 
 function toggleArrangeWord(i) {
-  speak(sqArrangeSegments[i].text);
+  // speak(sqArrangeSegments[i].text); // Disabled per user request (only audio on VN)
 
   const btn = document.getElementById(`arr-btn-${i}`);
   const dropzone = document.getElementById('arrange-dropzone');
@@ -759,7 +796,7 @@ function checkArrangeAns() {
     } else {
       showSQResult();
     }
-  }, 2500);
+  }, 1000);
 }
 
 function handleSQAns(btn, isCorrect) {
@@ -790,7 +827,7 @@ function handleSQAns(btn, isCorrect) {
   
   fb.style.display = 'block';
   const isTouchMobile = window.matchMedia('(max-width: 480px), (hover: none) and (pointer: coarse)').matches;
-  const advanceDelay = isTouchMobile ? 650 : 1500;
+  const advanceDelay = 1000;
   
   setTimeout(() => {
     sqIdx++;
@@ -813,7 +850,10 @@ function showSQResult() {
       <div style="font-size:80px;margin-bottom:20px;">${pct >= 80 ? '🏆' : pct >= 50 ? '👏' : '📚'}</div>
       <h2 style="font-family:'DM Serif Display',serif;font-size:32px;margin-bottom:10px;">Hoàn thành!</h2>
       <p style="color:var(--text2);font-size:18px;margin-bottom:40px;">Bạn trả lời đúng <strong>${sqScore}/${sqQuestions.length}</strong> câu (${pct}%).</p>
-      <button class="btn-primary" style="padding:15px 40px;font-size:16px;" onclick="exitVocabQuiz()">Quay lại Luyện câu</button>
+      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+        <button class="btn-primary" style="padding:15px 30px;font-size:16px;background:var(--blue);" onclick="renderSQSetup()">🔄 Ôn tập lại</button>
+        <button class="btn-ghost" style="padding:15px 30px;font-size:16px;border:1px solid var(--border);" onclick="exitVocabQuiz()">← Quay lại Luyện câu</button>
+      </div>
     </div>
   `;
 }
@@ -1188,7 +1228,8 @@ function renderHskReviewQ(idx) {
   if (idx >= total) { showHskReviewSuccess(); return; }
   hskReviewAnswered = false;
   const cur = hskReviewQueue[idx];
-  const wrong = shuffle(allVocab.filter(v=>v.id!==cur.id)).slice(0,3);
+  // Filter wrong answers: get 3 random different from current
+  const wrong = shuffle(allVocab.filter(v => v.id !== cur.id)).slice(0, 3);
   const opts  = shuffle([cur,...wrong]);
   document.getElementById('hsk-review-area').innerHTML = `
     <div class="question-card">
@@ -1199,10 +1240,12 @@ function renderHskReviewQ(idx) {
     <div class="options-grid">
       ${opts.map(o=>`
         <button class="opt-btn" data-is-correct="${o.id===cur.id}" 
-          onmouseenter="speak('${o.hanzi}')"
-          onclick="speak('${o.hanzi}'); handleHskReviewAns(this,${o.id===cur.id},${idx},${cur.id})">
-          <span class="opt-main">${o.meaning}</span>
-          <span class="opt-pinyin">${o.pinyin}</span>
+          onclick="handleHskReviewAns(this,${o.id===cur.id},${idx},${cur.id})">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+            <span class="opt-main">${o.meaning}</span>
+            <span style="font-size:12px;color:var(--text3);">(${o.pinyin})</span>
+            <span class="btn-speak" style="font-size:14px;background:none;border:none;cursor:pointer;" onclick="event.stopPropagation(); speak('${o.hanzi.replace(/'/g, "\\'")}')">🔊</span>
+          </div>
         </button>`).join('')}
     </div>
     <div class="feedback" id="hsk-fb"></div>
@@ -1218,6 +1261,7 @@ function handleHskReviewAns(btn, isCorrect, idx, correctId) {
     btn.classList.add('correct');
     fb.textContent='✓ Chính xác!'; fb.className='feedback correct';
     document.getElementById('hsk-next').style.display='block';
+    setTimeout(() => renderHskReviewQ(idx + 1), 1000);
   } else {
     btn.classList.add('wrong');
     const correctBtn = document.querySelector('#hsk-review-area .opt-btn[data-is-correct="true"]');
@@ -1226,7 +1270,7 @@ function handleHskReviewAns(btn, isCorrect, idx, correctId) {
     const correctVocab = allVocab.find(v=>v.id===correctId);
     fb.textContent=`✗ Sai rồi! Đáp án: ${correctVocab?.pinyin} — ${correctVocab?.meaning}. Làm lại từ đầu!`;
     fb.className='feedback wrong';
-    setTimeout(()=>{ hskReviewQueue=shuffle(allVocab).slice(0,5); renderHskReviewQ(0); }, 2000);
+    setTimeout(()=>{ hskReviewQueue=shuffle(allVocab).slice(0,5); renderHskReviewQ(0); }, 1000);
   }
 }
 
@@ -1278,7 +1322,7 @@ async function submitHskRequest() {
   } catch (err) {
     console.error('submitHskRequest error:', err);
     if (btn) { btn.disabled = false; btn.textContent = 'Gửi yêu cầu lên HSK ' + hskReviewTarget; }
-    showToast('Không thể gửi yêu cầu lên cấp. Vui lòng thử lại.');
+    showToast('Không thể gửi yêu cầu lên cấp. V vui lòng thử lại.');
   }
 }
 
@@ -1298,10 +1342,44 @@ async function loadAssigned() {
       .eq('student_id',currentUser.id);
     if (error) throw error;
     
-    const { data:done } = await sb.from('quiz_results').select('quiz_id').eq('student_id',currentUser.id);
-    const doneSet = new Set((done||[]).map(r=>r.quiz_id));
+    const { data:results } = await sb.from('quiz_results').select('*').eq('student_id',currentUser.id).order('completed_at', { ascending: false });
+    
+    const resultsByQuiz = {}; // quiz_id -> array of results
+    (results || []).forEach(r => {
+      if (!resultsByQuiz[r.quiz_id]) resultsByQuiz[r.quiz_id] = [];
+      resultsByQuiz[r.quiz_id].push(r);
+    });
+
+    const bestResultsMap = {}; // quiz_id -> best result object
+    Object.keys(resultsByQuiz).forEach(qid => {
+      const qResults = resultsByQuiz[qid];
+      const sorted = [...qResults].sort((x, y) => {
+        const scoreX = x.score / x.total;
+        const scoreY = y.score / y.total;
+        if (scoreX !== scoreY) return scoreY - scoreX;
+        return (x.time_spent || 999999) - (y.time_spent || 999999);
+      });
+      bestResultsMap[qid] = sorted[0];
+    });
+
+    const doneSet = new Set((results||[]).map(r=>r.quiz_id));
     const el = document.getElementById('assigned-list');
     if (!el) return;
+    
+    // Count incomplete homework
+    const incompleteHomework = (assigns||[]).filter(a => 
+      a.quizzes && a.quizzes.type === 'homework' && !doneSet.has(a.quizzes.id)
+    ).length;
+    
+    // Update badge
+    const badge = document.getElementById('homework-badge');
+    if (incompleteHomework > 0) {
+      badge.textContent = incompleteHomework;
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+    
     if (!assigns||!assigns.length) {
       el.innerHTML='<div class="empty-state"><span class="empty-icon">📝</span>Chưa có bài nào được giao.</div>';
       return;
@@ -1311,22 +1389,47 @@ async function loadAssigned() {
       if (!q) return '';
       const isDone  = doneSet.has(q.id);
       const isQuick = q.type==='quickquiz';
+      const isHomework = q.type === 'homework';
       const dur     = isQuick && q.duration_seconds ? Math.round(q.duration_seconds/60)+'p' : null;
+      const best = bestResultsMap[q.id];
+      const qHistory = resultsByQuiz[q.id] || [];
+      const hasHistory = qHistory.length > 1;
+
       return `
         <div class="card" style="padding:18px;">
           <div style="display:flex;gap:14px;align-items:flex-start;">
             <div class="quiz-card-icon" style="background:${isQuick?'var(--gold-bg)':'var(--blue-bg)'};width:46px;height:46px;font-size:20px;">
               ${isQuick?'⚡':'📝'}
             </div>
-            <div class="card-info">
-              <h4 style="font-size:15px;">${q.title}</h4>
+            <div class="card-info" style="flex:1;">
+              <h4 style="font-size:15px;">${q.title}${!isDone?'<span style="color:var(--primary);margin-left:8px;font-weight:700;">!</span>':''}</h4>
               <p>${(q.vocab_ids||[]).length} từ · ${isQuick?'Kiểm tra nhanh':'Bài tập về nhà'}${dur?' · '+dur:''}</p>
+              ${isDone ? `<p style="font-size:11px; color:var(--accent); font-weight:600; margin-top:4px;">🏆 Cao nhất: ${best.score}/${best.total} (${fmtTime(best.time_spent)} · ${fmtDate(best.completed_at)})</p>` : ''}
             </div>
           </div>
-          <div class="card-actions-bottom">
-            <span style="font-size:12px;color:var(--text3)">${isQuick?'⚡ Quick Quiz':'📝 Homework'}</span>
+          
+          ${hasHistory ? `
+            <div id="stu-history-${q.id}" style="display:none; margin-top:12px; padding:10px; background:var(--surface2); border-radius:8px; border-left:3px solid var(--accent);">
+              <div style="font-size:11px; font-weight:700; margin-bottom:6px; color:var(--text2); text-transform:uppercase;">Lịch sử của bạn:</div>
+              ${qHistory.map((res, idx) => `
+                <div style="display:flex; justify-content:space-between; font-size:12px; padding:4px 0; border-bottom:1px solid var(--border);">
+                  <span style="color:var(--text3)">Lần ${qHistory.length - idx}</span>
+                  <span style="font-weight:600;">${res.score}/${res.total} (${fmtTime(res.time_spent)})</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+
+          <div class="card-actions-bottom" style="margin-top:16px;">
+            <div style="display:flex; gap:8px;">
+              ${hasHistory ? `<button class="btn-ghost btn-xs" onclick="toggleStudentHistory(${q.id})">📜 Lịch sử</button>` : ''}
+              <span style="font-size:12px;color:var(--text3); align-self:center;">${isQuick?'⚡ Quick Quiz':'📝 Homework'}</span>
+            </div>
             ${isDone
-              ? '<span class="badge badge-done">✓ Đã hoàn thành</span>'
+              ? `<div style="display:flex; gap:8px; align-items:center;">
+                   <span class="badge badge-done">✓ Đã xong</span> 
+                   <button class="btn-primary btn-sm" onclick="startQuiz(${q.id}, true)">🔄 Làm lại</button>
+                 </div>`
               : `<button class="btn-primary btn-sm" onclick="startQuiz(${q.id})">🎯 Bắt đầu làm bài</button>`
             }
           </div>
@@ -1342,9 +1445,11 @@ async function loadAssigned() {
 // ══════════════════════════════════════════
 //  QUIZ OVERLAY (Làm bài)
 // ══════════════════════════════════════════
-async function startQuiz(quizId) {
+async function startQuiz(quizId, isRetake = false) {
   activeQuizId = quizId;
+  isHomeworkRetake = isRetake;
   quizIdx = 0; quizCorrect = 0; quizAnswered = false;
+  quizStartTime = Date.now();
   const { data:quiz } = await sb.from('quizzes').select('*').eq('id',quizId).single();
   if (!quiz) return;
   const vocabIds = quiz.vocab_ids || [];
@@ -1352,7 +1457,12 @@ async function startQuiz(quizId) {
   quizVocab = shuffle(vocab||[]);
   document.getElementById('quiz-overlay-title').textContent = quiz.title;
   const timerWrap = document.getElementById('timer-wrap');
-  if (quiz.type==='quickquiz' && quiz.duration_seconds) {
+  
+  if (isHomeworkRetake && quiz.type === 'homework') {
+    homeworkQTimerLeft = 10;
+    timerWrap.style.display='block';
+    startHomeworkQuestionTimer();
+  } else if (quiz.type==='quickquiz' && quiz.duration_seconds) {
     quizTimerLeft = quiz.duration_seconds;
     quizTimerTotal = quiz.duration_seconds;
     timerWrap.style.display='block';
@@ -1360,6 +1470,7 @@ async function startQuiz(quizId) {
   } else {
     timerWrap.style.display='none';
     clearInterval(quizTimerInterval);
+    clearInterval(homeworkAutoTimer);
   }
   document.getElementById('quiz-overlay').classList.add('open');
   document.body.style.overflow='hidden';
@@ -1384,8 +1495,9 @@ function renderQuizQ(idx) {
   if (idx>=total) { finishQuiz(); return; }
   quizIdx = idx; quizAnswered = false;
   const cur   = quizVocab[idx];
-  const wrong = shuffle(allVocab.filter(v=>v.id!==cur.id)).slice(0,3);
-  const opts  = shuffle([cur,...wrong]);
+  // Filter wrong answers from ONLY the selected vocabulary (quizVocab)
+  const wrong = shuffle(quizVocab.filter(v => v.id !== cur.id)).slice(0, 3);
+  const opts  = shuffle([cur, ...wrong]);
   document.getElementById('quiz-area').innerHTML = `
     <div class="question-card">
       <div class="q-label">Từ này có nghĩa là gì?</div>
@@ -1395,49 +1507,75 @@ function renderQuizQ(idx) {
     <div class="options-grid">
       ${opts.map(o=>`
         <button class="opt-btn" data-is-correct="${o.id===cur.id}" 
-          onmouseenter="speak('${o.hanzi}')"
-          onclick="speak('${o.hanzi}'); handleQuizAns(this,${o.id===cur.id},${idx})">
-          <span class="opt-main">${o.meaning}</span>
-          <span class="opt-pinyin">${o.pinyin}</span>
+          onclick="handleQuizAns(this,${o.id===cur.id},${idx})">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+            <span class="opt-main">${o.meaning}</span>
+            <span style="font-size:12px;color:var(--text3);">(${o.pinyin})</span>
+            <span class="btn-speak" style="font-size:14px;background:none;border:none;cursor:pointer;" onclick="event.stopPropagation(); speak('${o.hanzi.replace(/'/g, "\\'")}')">🔊</span>
+          </div>
         </button>`).join('')}
     </div>
     <div class="feedback" id="quiz-fb"></div>
     <button class="next-btn" id="quiz-next" onclick="renderQuizQ(${idx+1})">${idx+1>=total?'Nộp bài':'Câu tiếp →'}</button>`;
+  
+  // Start homework timer if in retake mode
+  if (isHomeworkRetake) {
+    startHomeworkQuestionTimer();
+  }
 }
 
 function handleQuizAns(btn, isCorrect, idx) {
   if (quizAnswered) return;
   quizAnswered = true;
+  clearInterval(homeworkAutoTimer);
   document.querySelectorAll('#quiz-area .opt-btn').forEach(b=>b.disabled=true);
   const fb = document.getElementById('quiz-fb');
-  if (isCorrect) {
+  if (isCorrect && btn) {
     quizCorrect++;
     btn.classList.add('correct');
     fb.textContent='✓ Chính xác!'; fb.className='feedback correct';
   } else {
-    btn.classList.add('wrong');
+    if (btn) btn.classList.add('wrong');
+    fb.textContent = btn ? '✗ Sai rồi!' : '⏰ Hết thời gian!';
+    fb.className = 'feedback wrong';
     // Highlight the correct one
     const correctBtn = document.querySelector('#quiz-area .opt-btn[data-is-correct="true"]');
     if (correctBtn) correctBtn.classList.add('correct');
     
     const cur = quizVocab[idx];
-    fb.textContent=`✗ Sai rồi! Đáp án: ${cur.pinyin} (${cur.meaning})`; 
+    fb.innerHTML += `<br>Đáp án: <strong style="color:var(--text);font-size:16px;">${cur.hanzi}</strong> (${cur.pinyin}) - ${cur.meaning}`; 
     fb.className='feedback wrong';
   }
-  document.getElementById('quiz-next').style.display='block';
+  document.getElementById('quiz-next').style.display = 'block';
+  setTimeout(() => renderQuizQ(idx + 1), 1000);
 }
 
 async function finishQuiz() {
   clearInterval(quizTimerInterval);
+  clearInterval(homeworkAutoTimer);
   const total = quizVocab.length;
-  await sb.from('quiz_results').insert({ quiz_id:activeQuizId, student_id:currentUser.id, score:quizCorrect, total });
+  const timeSpent = Math.round((Date.now() - quizStartTime) / 1000);
+  const { error } = await sb.from('quiz_results').insert({ 
+    quiz_id: activeQuizId, 
+    student_id: currentUser.id, 
+    score: quizCorrect, 
+    total,
+    time_spent: timeSpent
+  });
+  if (error) {
+    console.error("Lỗi lưu kết quả bài tập:", error);
+    showToast("Không thể lưu kết quả. Có thể do lỗi cơ sở dữ liệu.");
+  }
   const pct = Math.round(quizCorrect/total*100);
   const cls = pct>=80?'var(--accent)':pct>=50?'var(--gold)':'var(--primary)';
   document.getElementById('quiz-area').innerHTML = `
     <div class="result-card">
       <div class="result-emoji">${pct>=80?'🎉':pct>=50?'😊':'😅'}</div>
       <div class="result-score" style="color:${cls}">${quizCorrect}<span style="font-size:28px;color:var(--text3)">/${total}</span></div>
-      <div class="result-detail">${pct}% chính xác · ${pct>=80?'Xuất sắc!':pct>=50?'Khá tốt, cố lên!':'Cần luyện thêm!'}</div>
+      <div class="result-detail">
+        ${pct}% chính xác · ${pct>=80?'Xuất sắc!':pct>=50?'Khá tốt, cố lên!':'Cần luyện thêm!'}
+        <br><span style="font-size:14px; color:var(--text3); margin-top:8px; display:block;">Thời gian hoàn thành: <strong>${fmtTime(timeSpent)}</strong></span>
+      </div>
       <button class="btn-primary" style="width:100%;justify-content:center;" onclick="exitQuizOverlay()">← Quay lại</button>
     </div>`;
   document.getElementById('quiz-prog').style.width='100%';
@@ -1445,8 +1583,27 @@ async function finishQuiz() {
   await loadHistory();
 }
 
+function startHomeworkQuestionTimer() {
+  clearInterval(homeworkAutoTimer);
+  homeworkQTimerLeft = 5;
+  const timerVal = document.getElementById('timer-val');
+  const timerBar = document.getElementById('timer-bar');
+  
+  homeworkAutoTimer = setInterval(() => {
+    homeworkQTimerLeft--;
+    if (timerVal) timerVal.textContent = homeworkQTimerLeft + 's';
+    if (timerBar) timerBar.style.width = (homeworkQTimerLeft / 5 * 100) + '%';
+    
+    if (homeworkQTimerLeft <= 0) {
+      clearInterval(homeworkAutoTimer);
+      handleQuizAns(null, false, quizIdx);
+    }
+  }, 1000);
+}
+
 function exitQuizOverlay() {
   clearInterval(quizTimerInterval);
+  clearInterval(homeworkAutoTimer);
   document.getElementById('quiz-overlay').classList.remove('open');
   document.body.style.overflow='';
 }
@@ -1482,11 +1639,13 @@ function renderPracticeQ(idx) {
           <div class="flashcard-front">
             <div class="q-label">Hán tự (Bấm để lật)</div>
             <div class="fc-hanzi">${cur.hanzi}</div>
-            <button class="btn-speak" style="margin-top:10px" onclick="event.stopPropagation(); speak('${cur.hanzi}')">🔊 Nghe</button>
           </div>
           <div class="flashcard-back">
-            <div class="fc-pinyin">${cur.pinyin}</div>
-            <div class="fc-meaning">${cur.meaning}</div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+              <button class="btn-speak" onclick="event.stopPropagation(); speak('${cur.hanzi}')">🔊 Nghe phát âm</button>
+              <div class="fc-pinyin">${cur.pinyin}</div>
+              <div class="fc-meaning">${cur.meaning}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1494,30 +1653,33 @@ function renderPracticeQ(idx) {
     return;
   }
 
-  const wrong = shuffle(allVocab.filter(v=>v.id!==cur.id)).slice(0,3);
-  const opts  = shuffle([cur,...wrong]);
   const isMeaning = practiceMode==='meaning';
+  // Filter wrong answers: get 3 random different from current
+  const wrong = shuffle(allVocab.filter(v => v.id !== cur.id)).slice(0, 3);
+  const opts  = shuffle([cur,...wrong]);
   document.getElementById('practice-area').innerHTML = `
     <div class="question-card">
       <div class="q-label">${isMeaning?'Từ này có nghĩa là gì?':'Nghĩa này là từ nào?'}</div>
       ${isMeaning
         ? `<div class="q-hanzi">${cur.hanzi}</div>`
-        : `<div class="q-text-mode" style="margin:20px 0;">${cur.meaning}</div>
-           <div style="display:flex; justify-content:center; align-items:center; gap:8px; margin-top:-10px;">
-             <div class="q-pinyin" style="font-size:16px; color:var(--text3); font-family:'DM Sans', sans-serif; margin:0;">${cur.pinyin}</div>
-             <button class="btn-speak" style="width:34px;height:34px;font-size:16px;" onclick="speak('${cur.hanzi.replace(/'/g, "\\'")}')">🔊</button>
-           </div>`}
+        : `<div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin:20px 0;">
+             <button class="btn-speak" style="width:40px;height:40px;font-size:18px;" onclick="speak('${cur.hanzi}')">🔊</button>
+             <div class="q-text-mode" style="margin:0;">${cur.meaning}</div>
+             <div style="font-size:16px;color:var(--text3)">(${cur.pinyin})</div>
+           </div>`
+      }
       <div class="q-num">${idx+1} / ${practiceQueue.length}</div>
     </div>
     <div class="options-grid">
       ${opts.map(o=>`
         <button class="opt-btn" data-is-correct="${o.id===cur.id}" 
+          onclick="handlePracticeAns(this,${o.id===cur.id},${idx})">
           ${isMeaning
-            ? `onmouseenter="speak('${o.hanzi}')" onclick="speak('${o.hanzi}'); handlePracticeAns(this,${o.id===cur.id},${idx})"`
-            : `onclick="handlePracticeAns(this,${o.id===cur.id},${idx})"`}>
-          ${isMeaning
-            ? `<span class="opt-main">${o.meaning}</span>
-               <span class="opt-pinyin">${o.pinyin}</span>`
+            ? `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+                 <span class="opt-main">${o.meaning}</span>
+                 <span style="font-size:12px;color:var(--text3);">(${o.pinyin})</span>
+                 <span class="btn-speak" style="font-size:14px;background:none;border:none;cursor:pointer;" onclick="event.stopPropagation(); speak('${o.hanzi.replace(/'/g, "\\'")}')">🔊</span>
+               </div>`
             : `<span class="opt-hanzi">${o.hanzi}</span>`
           }
         </button>`).join('')}
@@ -1541,7 +1703,8 @@ function handlePracticeAns(btn, isCorrect, idx) {
     fb.textContent=`✗ Sai rồi! Đáp án: ${cur.pinyin} — ${cur.meaning}`;
     fb.className='feedback wrong';
   }
-  document.getElementById('pr-next').style.display='block';
+  document.getElementById('pr-next').style.display = 'block';
+  setTimeout(() => renderPracticeQ(idx + 1), 1000);
 }
 
 // ══════════════════════════════════════════
@@ -1573,7 +1736,10 @@ async function loadHistory() {
               <span class="${cls}" style="font-size:13px;font-weight:700;">${pct}%</span>
             </div>
           </td>
-          <td style="font-size:12px;color:var(--text3);">${fmtDate(r.completed_at)}</td>
+          <td style="font-size:12px;color:var(--text3);">
+            ${fmtTime(r.time_spent)}<br>
+            <span style="font-size:10px;">${fmtDate(r.completed_at)}</span>
+          </td>
         </tr>`;
     }).join('');
   } catch (err) {
@@ -1582,6 +1748,204 @@ async function loadHistory() {
     if (el) el.innerHTML = '<tr><td colspan="4" class="empty-state">Lỗi tải lịch sử</td></tr>';
   }
 }
+// ══════════════════════════════════════════
+//  LEADERBOARD
+// ══════════════════════════════════════════
+let currentLeaderboardMode = 'xp';
+
+function switchLeaderboard(btn, mode) {
+  currentLeaderboardMode = mode;
+  document.querySelectorAll('.leaderboard-tabs .mode-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadLeaderboard();
+}
+
+async function loadLeaderboard() {
+  const listEl = document.getElementById('leaderboard-list');
+  const badgeEl = document.getElementById('leaderboard-hsk-badge');
+  const subTitleEl = document.getElementById('leaderboard-subtitle');
+  
+  if (!listEl) return;
+  listEl.innerHTML = '<p class="loading">Đang tải dữ liệu xếp hạng...</p>';
+  
+  if (badgeEl) {
+    badgeEl.textContent = `HSK ${currentStuLevel}`;
+    badgeEl.className = `badge badge-hsk${currentStuLevel}`;
+    badgeEl.style.display = currentLeaderboardMode === 'streak' ? 'none' : 'block';
+  }
+
+  try {
+    // 1. Get all students of the same level (except for Streak)
+    let studentQuery = sb.from('profiles').select('id, full_name');
+    
+    // For most modes, we only care about students in the same HSK level
+    const { data: levelPeers } = await sb.from('hsk_student_levels').select('student_id, hsk_level');
+    const levelMap = {};
+    (levelPeers || []).forEach(lp => levelMap[lp.student_id] = lp.hsk_level);
+    
+    // 2. Get all quiz results to calculate stats
+    // Note: In a production app, this should be a DB View or an RPC for performance
+    const { data: allResults, error } = await sb.from('quiz_results').select('*');
+    if (error) throw error;
+
+    // 3. Get all student profiles
+    const { data: allProfiles } = await sb.from('profiles').select('id, full_name').eq('role', 'student');
+    const profileMap = {};
+    (allProfiles || []).forEach(p => profileMap[p.id] = p.full_name);
+
+    let ranking = [];
+
+    if (currentLeaderboardMode === 'xp') {
+      subTitleEl.textContent = `Top 10 nỗ lực nhất - HSK ${currentStuLevel}`;
+      const xpMap = {};
+      allResults.forEach(r => {
+        if (levelMap[r.student_id] === currentStuLevel) {
+          xpMap[r.student_id] = (xpMap[r.student_id] || 0) + (r.score || 0);
+        }
+      });
+      ranking = Object.keys(xpMap).map(sid => ({
+        id: sid,
+        name: profileMap[sid] || 'Học sinh',
+        value: xpMap[sid],
+        unit: 'XP'
+      })).sort((a, b) => b.value - a.value);
+    } 
+    else if (currentLeaderboardMode === 'accuracy') {
+      subTitleEl.textContent = `Top 10 thông thái nhất - HSK ${currentStuLevel}`;
+      const accMap = {};
+      allResults.forEach(r => {
+        if (levelMap[r.student_id] === currentStuLevel && r.total > 0) {
+          if (!accMap[r.student_id]) accMap[r.student_id] = { sum: 0, count: 0 };
+          accMap[r.student_id].sum += (r.score / r.total * 100);
+          accMap[r.student_id].count++;
+        }
+      });
+      ranking = Object.keys(accMap)
+        .filter(sid => accMap[sid].count >= 3) // At least 3 quizzes to be ranked
+        .map(sid => ({
+          id: sid,
+          name: profileMap[sid] || 'Học sinh',
+          value: Math.round(accMap[sid].sum / accMap[sid].count),
+          unit: '%'
+        })).sort((a, b) => b.value - a.value);
+    }
+    else if (currentLeaderboardMode === 'mastery') {
+      subTitleEl.textContent = `Top 10 hoàn thành xuất sắc - HSK ${currentStuLevel}`;
+      // Count unique quizzes completed with > 80% score
+      const masteryMap = {};
+      allResults.forEach(r => {
+        if (levelMap[r.student_id] === currentStuLevel && (r.score / r.total) >= 0.8) {
+          if (!masteryMap[r.student_id]) masteryMap[r.student_id] = new Set();
+          masteryMap[r.student_id].add(r.quiz_id);
+        }
+      });
+      ranking = Object.keys(masteryMap).map(sid => ({
+        id: sid,
+        name: profileMap[sid] || 'Học sinh',
+        value: masteryMap[sid].size,
+        unit: 'bài'
+      })).sort((a, b) => b.value - a.value);
+    }
+    else if (currentLeaderboardMode === 'streak') {
+      subTitleEl.textContent = `Top 10 bền bỉ nhất - Toàn trường`;
+      const streakMap = {};
+      const today = new Date().toLocaleDateString('en-CA');
+      
+      // Group results by student and date
+      const studentDates = {};
+      allResults.forEach(r => {
+        const d = new Date(r.completed_at).toLocaleDateString('en-CA');
+        if (!studentDates[r.student_id]) studentDates[r.student_id] = new Set();
+        studentDates[r.student_id].add(d);
+      });
+
+      Object.keys(studentDates).forEach(sid => {
+        const dates = Array.from(studentDates[sid]).sort().reverse();
+        let streak = 0;
+        let checkDate = new Date(); // Start from today
+        
+        // Simple streak: how many consecutive days back from today or yesterday
+        for (let i = 0; i < 100; i++) {
+          const ds = checkDate.toLocaleDateString('en-CA');
+          if (studentDates[sid].has(ds)) {
+            streak++;
+            checkDate.setDate(checkDate.getDate() - 1);
+          } else {
+            // If we're checking today and don't have it, try yesterday
+            if (i === 0) {
+              checkDate.setDate(checkDate.getDate() - 1);
+              continue;
+            }
+            break;
+          }
+        }
+        if (streak > 0) streakMap[sid] = streak;
+      });
+
+      ranking = Object.keys(streakMap).map(sid => ({
+        id: sid,
+        name: profileMap[sid] || 'Học sinh',
+        value: streakMap[sid],
+        unit: 'ngày'
+      })).sort((a, b) => b.value - a.value);
+    }
+    else if (currentLeaderboardMode === 'speed') {
+      subTitleEl.textContent = `Top 10 phản xạ nhanh - HSK ${currentStuLevel}`;
+      const speedMap = {};
+      allResults.forEach(r => {
+        if (levelMap[r.student_id] === currentStuLevel && r.time_spent > 0 && r.total > 0) {
+          if (!speedMap[r.student_id]) speedMap[r.student_id] = { sum: 0, count: 0 };
+          speedMap[r.student_id].sum += (r.time_spent / r.total);
+          speedMap[r.student_id].count++;
+        }
+      });
+      ranking = Object.keys(speedMap)
+        .filter(sid => speedMap[sid].count >= 2)
+        .map(sid => ({
+          id: sid,
+          name: profileMap[sid] || 'Học sinh',
+          value: parseFloat((speedMap[sid].sum / speedMap[sid].count).toFixed(1)),
+          unit: 's/câu'
+        })).sort((a, b) => a.value - b.value); // Lower is better for speed
+    }
+
+    // 4. Render top 10
+    const top10 = ranking.slice(0, 10);
+    if (top10.length === 0) {
+      listEl.innerHTML = '<div class="empty-state">Chưa có dữ liệu xếp hạng trong mục này.</div>';
+      return;
+    }
+
+    listEl.innerHTML = `
+      <div class="leaderboard-container">
+        ${top10.map((item, index) => {
+          const isMe = item.id === currentUser.id;
+          const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : (index + 1);
+          const color = avatarColor(item.name);
+          return `
+            <div class="leaderboard-item ${isMe ? 'me' : ''}">
+              <div class="rank-num">${medal}</div>
+              <div class="stu-avatar" style="background:${color}; width:36px; height:36px; font-size:13px;">${initials(item.name)}</div>
+              <div class="stu-name-wrap">
+                <div class="stu-name">${item.name} ${isMe ? '<span class="badge-me">Bạn</span>' : ''}</div>
+                <div class="stu-level-tag">HSK ${levelMap[item.id] || 1}</div>
+              </div>
+              <div class="rank-value">
+                <strong>${item.value}</strong>
+                <span>${item.unit}</span>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+  } catch (err) {
+    console.error("Leaderboard error:", err);
+    listEl.innerHTML = '<div class="empty-state">Lỗi tải bảng xếp hạng.</div>';
+  }
+}
+
 // ── HELPERS ──
 function hskBadge(lvl) {
   return `<span class="badge badge-hsk${lvl}">HSK ${lvl}</span>`;

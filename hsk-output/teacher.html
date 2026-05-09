@@ -41,9 +41,6 @@
       <button class="nav-item" onclick="showPanel('classes')">
         <span class="nav-icon">🏫</span> Lớp học
       </button>
-      <button class="nav-item" onclick="showPanel('quizzes')">
-        <span class="nav-icon">✏️</span> Bài quiz
-      </button>
       <button class="nav-item" onclick="showPanel('vocab')">
         <span class="nav-icon">📖</span> Từ vựng
       </button>
@@ -148,10 +145,10 @@
       <div class="card-grid" id="class-list"><p class="loading">Đang tải...</p></div>
 
       <div class="section-row" style="margin-top:32px">
-        <h3>Bài học theo lớp</h3>
-        <button class="btn-primary btn-sm" onclick="openCreateLesson()">＋ Tạo bài học mới</button>
+        <h3>Bài quiz</h3>
+        <button class="btn-primary btn-sm" onclick="openModal('modal-create-quiz')">＋ Tạo quiz</button>
       </div>
-      <div id="lesson-list" class="card-grid"><p class="empty-state">Chọn một lớp để xem bài học</p></div>
+      <div id="quiz-list" class="card-grid"><p class="empty-state">Chọn một lớp để xem bài quiz</p></div>
     </div>
 
     <!-- ── VOCAB ── -->
@@ -239,15 +236,76 @@
       <div id="sentences-list-t" class="card-grid"><p class="loading">Đang tải...</p></div>
     </div>
 
-    <!-- ── QUIZZES ── -->
-    <div id="panel-quizzes" class="tab-panel">
+    <!-- ── QUIZZES ── (moved to classes panel) -->
+    <div id="panel-quizzes" class="tab-panel" style="display:none;">
       <div class="page-header">
         <div class="page-header-row">
           <div><h1>Bài quiz</h1><p>Tạo và phân công bài kiểm tra</p></div>
           <button class="btn-primary" onclick="openModal('modal-create-quiz')">＋ Tạo quiz</button>
         </div>
       </div>
-      <div class="card-grid" id="quiz-list"><p class="loading">Đang tải...</p></div>
+      <div class="card-grid" id="quiz-list-old"><p class="loading">Đang tải...</p></div>
+    </div>
+    <!-- ── RESULTS (Leaderboard & History) ── -->
+    <div id="panel-results" class="tab-panel">
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1>Kết quả & Xếp hạng</h1>
+            <p>Phân tích trình độ và bảng xếp hạng học sinh</p>
+          </div>
+          <select id="filter-leaderboard-level" onchange="loadTeacherLeaderboard()" style="padding:8px 12px; border:1px solid var(--border); border-radius:var(--r-sm); font-family:'DM Sans',sans-serif; font-size:13px; background:var(--surface); outline:none;">
+            <option value="all">Tất cả cấp độ</option>
+            <option value="1">HSK 1</option>
+            <option value="2">HSK 2</option>
+            <option value="3">HSK 3</option>
+            <option value="4">HSK 4</option>
+            <option value="5">HSK 5</option>
+            <option value="6">HSK 6</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="section-row">
+        <h3>Bảng xếp hạng học sinh</h3>
+      </div>
+      
+      <div class="leaderboard-tabs" style="display:flex; gap:8px; margin-bottom:20px; overflow-x:auto; padding-bottom:8px;">
+        <button class="mode-btn active" onclick="switchTeacherLeaderboard(this, 'xp')">🔥 Điểm XP</button>
+        <button class="mode-btn" onclick="switchTeacherLeaderboard(this, 'accuracy')">🎯 Chính xác</button>
+        <button class="mode-btn" onclick="switchTeacherLeaderboard(this, 'mastery')">🏆 Trình độ</button>
+        <button class="mode-btn" onclick="switchTeacherLeaderboard(this, 'streak')">🔥 Chuỗi ngày</button>
+        <button class="mode-btn" onclick="switchTeacherLeaderboard(this, 'speed')">⚡ Phản xạ</button>
+      </div>
+
+      <div id="teacher-leaderboard-list" style="margin-bottom:32px;">
+        <p class="loading">Đang tải xếp hạng...</p>
+      </div>
+
+      <div class="section-row">
+        <h3>Bài quiz khó nhất (Top Difficult)</h3>
+      </div>
+      <div id="difficult-quizzes-list" class="card-grid" style="margin-bottom:32px;"></div>
+
+      <div class="section-row">
+        <h3>Lịch sử làm bài toàn trường</h3>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Học sinh</th>
+              <th>Bài Quiz</th>
+              <th>Điểm số</th>
+              <th>Tỷ lệ</th>
+              <th>Thời gian</th>
+            </tr>
+          </thead>
+          <tbody id="results-list">
+            <tr><td colspan="5" class="loading">Đang tải dữ liệu...</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- ── ANNOUNCEMENTS ── -->
@@ -439,39 +497,9 @@
   </div>
 </div>
 
-<!-- Create Lesson -->
-<div class="modal-overlay" id="modal-create-lesson">
-  <div class="modal">
-    <h3>Tạo bài học mới</h3>
-    <div class="field"><label>Chọn lớp học</label><select id="lesson-class-id"></select></div>
-    <div class="field"><label>Tiêu đề bài học</label><input type="text" id="lesson-title" placeholder="Bài 1: Làm quen"/></div>
-    <div class="field">
-      <label>Chọn từ vựng</label>
-      <div class="picker-list" id="lesson-vocab-picker"></div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn-ghost" onclick="closeModal('modal-create-lesson')">Huỷ</button>
-      <button class="btn-primary" onclick="createLesson()">Tạo bài học</button>
-    </div>
-  </div>
-</div>
+<!-- Create Lesson (REMOVED - lessons no longer used) -->
 
-<!-- Edit Lesson -->
-<div class="modal-overlay" id="modal-edit-lesson">
-  <div class="modal">
-    <h3>Sửa bài học</h3>
-    <input type="hidden" id="edit-lesson-id"/>
-    <div class="field"><label>Tiêu đề bài học</label><input type="text" id="edit-lesson-title"/></div>
-    <div class="field">
-      <label>Chọn từ vựng (Nhấn để chọn/bỏ chọn)</label>
-      <div class="picker-list" id="edit-lesson-vocab-picker"></div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn-ghost" onclick="closeModal('modal-edit-lesson')">Huỷ</button>
-      <button class="btn-primary" onclick="updateLesson()">Cập nhật bài học</button>
-    </div>
-  </div>
-</div>
+<!-- Edit Lesson (REMOVED - lessons no longer used) -->
 
 <!-- Manage Class Members -->
 <div class="modal-overlay" id="modal-manage-class-members">
@@ -489,17 +517,7 @@
   </div>
 </div>
 
-<!-- Assign Lesson to Class -->
-<div class="modal-overlay" id="modal-assign-lesson">
-  <div class="modal">
-    <h3>Thêm bài học vào lớp</h3>
-    <div class="field"><label>Chọn lớp học</label><select id="assign-lesson-class-id"></select></div>
-    <div class="modal-actions">
-      <button class="btn-ghost" onclick="closeModal('modal-assign-lesson')">Huỷ</button>
-      <button class="btn-primary" onclick="assignLessonToClass()">Thêm ngay</button>
-    </div>
-  </div>
-</div>
+<!-- Assign Lesson to Class (REMOVED - lessons no longer used) -->
 
 <!-- Quiz Results Detail -->
 <div class="modal-overlay" id="modal-quiz-results">

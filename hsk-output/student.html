@@ -30,6 +30,7 @@
       </button>
       <button class="nav-item" onclick="showPanel('assigned')">
         <span class="nav-icon">📝</span> Bài được giao
+        <span id="homework-badge" class="nav-badge" style="display:none">0</span>
       </button>
       <button class="nav-item" onclick="showPanel('history')">
         <span class="nav-icon">📊</span> Lịch sử điểm
@@ -38,9 +39,6 @@
 
     <div class="sidebar-section">
       <div class="sidebar-section-label">Lớp học</div>
-      <button class="nav-item" onclick="showPanel('lessons')">
-        <span class="nav-icon">📖</span> Bài học lớp
-      </button>
       <button class="nav-item" onclick="showPanel('announcements')">
         <span class="nav-icon">📢</span> Thông báo
         <span id="ann-badge" class="nav-badge" style="display:none"></span>
@@ -94,7 +92,7 @@
     </div>
 
     <!-- ── LESSONS ── -->
-    <div id="panel-lessons" class="tab-panel">
+    <div id="panel-lessons" class="tab-panel" style="display:none;">
       <div class="page-header">
         <h1>Bài học theo lớp</h1>
         <p>Nội dung học tập được giáo viên chỉ định</p>
@@ -187,8 +185,6 @@
       </div>
     </div>
 
-
-
     <!-- ── VOCAB ── -->
     <div id="panel-vocab" class="tab-panel">
       <div class="page-header">
@@ -265,9 +261,23 @@
     <!-- ── LEADERBOARD ── -->
     <div id="panel-leaderboard" class="tab-panel">
       <div class="page-header">
-        <h1>Bảng xếp hạng</h1>
-        <p>Top 10 học sinh xuất sắc nhất</p>
+        <div class="page-header-row">
+          <div>
+            <h1>Bảng xếp hạng</h1>
+            <p id="leaderboard-subtitle">Top 10 học sinh xuất sắc nhất</p>
+          </div>
+          <div class="badge badge-hsk1" id="leaderboard-hsk-badge" style="font-size:14px; padding:6px 12px;">HSK 1</div>
+        </div>
       </div>
+
+      <div class="leaderboard-tabs" style="display:flex; gap:8px; margin-bottom:20px; overflow-x:auto; padding-bottom:8px;">
+        <button class="mode-btn active" onclick="switchLeaderboard(this, 'xp')">🔥 Điểm XP</button>
+        <button class="mode-btn" onclick="switchLeaderboard(this, 'accuracy')">🎯 Chính xác</button>
+        <button class="mode-btn" onclick="switchLeaderboard(this, 'mastery')">🏆 Trình độ</button>
+        <button class="mode-btn" onclick="switchLeaderboard(this, 'streak')">🔥 Chuỗi ngày</button>
+        <button class="mode-btn" onclick="switchLeaderboard(this, 'speed')">⚡ Phản xạ</button>
+      </div>
+
       <div id="leaderboard-list">
         <p class="loading">Đang tải...</p>
       </div>
