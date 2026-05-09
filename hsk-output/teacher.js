@@ -9,6 +9,7 @@ let allVocab = [];
 let allGroups = [];
 let allClasses = [];
 let allQuizzes = [];
+let allQuizFolders = [];
 let allSentencesT = [];
 let selectedVocabIds = new Set();
 let selectedStudentIds = new Set();
@@ -54,7 +55,7 @@ function speak(text) {
   document.getElementById('teacher-name').textContent = profile.full_name;
   document.getElementById('teacher-avatar').textContent = initials(profile.full_name);
   document.getElementById('teacher-avatar').style.background = avatarColor(profile.full_name);
-  await Promise.all([loadStudents(), loadClasses(), loadVocab(), loadQuizzes(), loadResults(), loadHskBadge(), loadAnnouncements(), loadSentencesT()]);
+  await Promise.all([loadStudents(), loadClasses(), loadVocab(), loadQuizzes(), loadQuizFolders(), loadResults(), loadHskBadge(), loadAnnouncements(), loadSentencesT()]);
 })();
 
 // ── Navigation ──
@@ -68,6 +69,8 @@ function showPanel(id) {
   closeSidebar();
   if (id === 'hsk-approve') loadHskRequests();
   if (id === 'announcements') loadAnnouncements();
+  if (id === 'feedback') loadFeedback();
+  if (id === 'vocab') loadVocab();
   if (id === 'classes') { loadClasses(); loadQuizzes(); }
   if (id === 'sentences') loadSentencesT();
   if (id === 'results') { loadResults(); loadTeacherLeaderboard(); }
@@ -169,7 +172,8 @@ function renderStudentGrid(students) {
             ${prog !== null ? `<div class="stu-pct ${progCls}">${prog}%</div>` : ''}
           </div>
           <div class="btn-group-row">
-            <button class="btn-primary btn-xs" onclick="promoteStudent('${s.id}', '${s.full_name}', ${s.hsk_level})">🚀 Nâng cấp</button>
+            <button class="btn-ghost btn-xs" onclick="demoteStudent('${s.id}', '${s.full_name}', ${s.hsk_level})" ${s.hsk_level <= 1 ? 'disabled' : ''}>📉 Hạ cấp</button>
+            <button class="btn-primary btn-xs" onclick="promoteStudent('${s.id}', '${s.full_name}', ${s.hsk_level})" ${s.hsk_level >= 6 ? 'disabled' : ''}>🚀 Nâng cấp</button>
             <button class="btn-danger btn-xs btn-delete-stu" onclick="deleteStudent('${s.id}', '${s.full_name}')" title="Xoá học sinh">✕</button>
           </div>
         </div>
@@ -217,6 +221,7 @@ async function deleteStudent(uid, name) {
 
 async function promoteStudent(id, name, curLevel) {
   const nextLevel = curLevel + 1;
+  if (nextLevel > 6) return;
   if (!confirm(`Nâng cấp học sinh "${name}" lên HSK${nextLevel}?`)) return;
   
   const { error } = await sb.from('hsk_student_levels').upsert({
@@ -227,6 +232,22 @@ async function promoteStudent(id, name, curLevel) {
   
   if (error) { showToast('Lỗi: ' + error.message); return; }
   showToast(`✓ Đã nâng cấp ${name} lên HSK${nextLevel}`);
+  await loadStudents();
+}
+
+async function demoteStudent(id, name, curLevel) {
+  const prevLevel = curLevel - 1;
+  if (prevLevel < 1) return;
+  if (!confirm(`Hạ cấp học sinh "${name}" xuống HSK${prevLevel}?`)) return;
+  
+  const { error } = await sb.from('hsk_student_levels').upsert({
+    student_id: id,
+    hsk_level: prevLevel,
+    updated_at: new Date()
+  }, { onConflict: 'student_id' });
+  
+  if (error) { showToast('Lỗi: ' + error.message); return; }
+  showToast(`✓ Đã hạ cấp ${name} xuống HSK${prevLevel}`);
   await loadStudents();
 }
 
@@ -309,9 +330,11 @@ async function loadClasses() {
           <h4>🏫 ${c.name}</h4>
           <p>${c.description || ''} · ${(c.lessons || []).length} bài học · ${(c.class_members || []).length} học sinh</p>
         </div>
-        <div class="card-actions">
-          <button class="btn-ghost btn-xs" onclick="openManageClassMembers(${c.id}, '${c.name}')">👥 Thành viên</button>
-          <button class="btn-ghost btn-xs" onclick="openEditClass(${c.id})">✏️ Sửa</button>
+        <div class="card-actions-bottom" style="margin-top:12px; gap:4px;">
+          <button class="btn-primary btn-xs" style="flex:1" onclick="openCreateQuizForClass(${c.id})">＋ Bài tập</button>
+          <button class="btn-ghost btn-xs" onclick="openAssignFolderToClass(${c.id}, '${c.name.replace(/'/g, "\\'")}')">📂 Giao thư mục</button>
+          <button class="btn-ghost btn-xs" onclick="openManageClassMembers(${c.id}, '${c.name.replace(/'/g, "\\'")}')">👥 TV</button>
+          <button class="btn-ghost btn-xs" onclick="openEditClass(${c.id})">✏️</button>
           <button class="btn-danger btn-xs" onclick="deleteClass(${c.id}, '${c.name.replace(/'/g, "\\'")}')">✕</button>
         </div>
       </div>
@@ -680,8 +703,12 @@ async function importVocab() {
 //  QUIZZES
 // ══════════════════════════════════════════
 async function loadQuizzes() {
-  const { data } = await sb.from('quizzes').select('*').order('created_at', { ascending: false });
-  allQuizzes = data || [];
+  const { data: quizzes } = await sb.from('quizzes').select('*').order('created_at', { ascending: false });
+  const { data: folders } = await sb.from('quiz_folders').select('*').order('name');
+  
+  allQuizzes = quizzes || [];
+  allQuizFolders = folders || [];
+
   const { data: results } = await sb.from('quiz_results').select('quiz_id, student_id');
   const submitMap = {};
   (results || []).forEach(r => {
@@ -694,39 +721,141 @@ async function loadQuizzes() {
 
   const el = document.getElementById('quiz-list');
   if (!allQuizzes.length) { el.innerHTML = '<div class="empty-state"><span class="empty-icon">✏️</span>Chưa có quiz nào.</div>'; return; }
-  el.innerHTML = allQuizzes.map(q => {
-    const submitted = submitMap[q.id] ? submitMap[q.id].size : 0;
-    const total = assignMap[q.id] || 0;
-    const pct = total ? Math.round(submitted / total * 100) : 0;
-    const isQuick = q.type === 'quickquiz';
-    return `
-      <div class="card quiz-row-clickable" onclick="viewQuizResults(${q.id})" style="cursor:pointer">
-        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;">
-          <div class="quiz-card-icon" style="background:${isQuick ? 'var(--gold-bg)' : 'var(--blue-bg)'}">
-            ${isQuick ? '⚡' : '📝'}
-          </div>
-          <div style="flex:1;min-width:0;">
-            <div style="font-weight:700;font-size:14px;margin-bottom:2px;">${q.title}</div>
-            <div style="font-size:12px;color:var(--text3);">
-              ${(q.vocab_ids || []).length} từ · ${isQuick ? 'Kiểm tra nhanh' : 'Bài tập về nhà'}
-              ${isQuick && q.duration_seconds ? ' · ' + Math.round(q.duration_seconds / 60) + ' phút' : ''}
+
+  // Group by folder
+  const folderMap = {};
+  allQuizFolders.forEach(f => folderMap[f.id] = { name: f.name, quizzes: [] });
+  folderMap[0] = { name: 'Chưa phân loại', quizzes: [] };
+
+  allQuizzes.forEach(q => {
+    const fid = q.folder_id || 0;
+    if (folderMap[fid]) folderMap[fid].quizzes.push(q);
+    else folderMap[0].quizzes.push(q);
+  });
+
+  const sortedFolders = Object.entries(folderMap)
+    .filter(([id, data]) => data.quizzes.length > 0 || id != 0)
+    .sort((a, b) => {
+      if (a[0] == 0) return 1;
+      if (b[0] == 0) return -1;
+      return a[1].name.localeCompare(b[1].name);
+    });
+
+  el.innerHTML = sortedFolders.map(([fid, data]) => `
+    <div style="grid-column: 1 / -1; margin-top: 16px; margin-bottom: 8px;">
+      <h3 style="font-size:16px; display:flex; align-items:center; gap:8px; color:var(--primary); cursor:pointer; user-select:none; background:var(--surface2); padding:10px; border-radius:var(--r-sm);" onclick="toggleFolder(${fid})">
+        <span id="folder-arrow-${fid}" style="transition:transform 0.2s;">▶</span> 📂 ${data.name} 
+        <span style="font-size:12px; color:var(--text3); font-weight:normal;">(${data.quizzes.length} bài)</span>
+      </h3>
+    </div>
+    <div id="folder-content-${fid}" style="display:none; grid-column: 1 / -1; width:100%; margin-bottom:20px;">
+      <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:16px;">
+        ${data.quizzes.map(q => {
+      const submitted = submitMap[q.id] ? submitMap[q.id].size : 0;
+      const total = assignMap[q.id] || 0;
+      const pct = total ? Math.round(submitted / total * 100) : 0;
+      const isQuick = q.type === 'quickquiz';
+      return `
+        <div class="card quiz-row-clickable" onclick="viewQuizResults(${q.id})" style="cursor:pointer">
+          <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;">
+            <div class="quiz-card-icon" style="background:${isQuick ? 'var(--gold-bg)' : 'var(--blue-bg)'}">
+              ${isQuick ? '⚡' : '📝'}
             </div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:700;font-size:14px;margin-bottom:2px;">${q.title}</div>
+              <div style="font-size:12px;color:var(--text3);">
+                ${(q.vocab_ids || []).length} từ · ${isQuick ? 'Kiểm tra nhanh' : 'Bài tập về nhà'}
+              </div>
+            </div>
+            <span class="badge ${isQuick ? 'badge-new' : 'badge-done'}">${isQuick ? '⚡ Nhanh' : '📝 HW'}</span>
           </div>
-          <span class="badge ${isQuick ? 'badge-new' : 'badge-done'}">${isQuick ? '⚡ Nhanh' : '📝 Homework'}</span>
-        </div>
-        <div style="margin-bottom:6px;display:flex;justify-content:space-between;font-size:12px;color:var(--text3);">
-          <span>Đã nộp: <strong style="color:var(--text)">${submitted}/${total}</strong></span>
-          <span>${pct}%</span>
-        </div>
-        <div class="progress-track">
-          <div class="progress-fill${pct >= 80 ? ' ' : pct >= 40 ? ' gold' : ' red'}" style="width:${pct}%"></div>
-        </div>
-        <div class="card-actions-bottom" style="margin-top:12px;">
-          <button class="btn-ghost btn-xs" style="flex:1" onclick="event.stopPropagation();openEditQuiz(${q.id})">✏️ Sửa</button>
-          <button class="btn-danger btn-xs" onclick="event.stopPropagation();deleteQuiz(${q.id})">✕ Xoá</button>
-        </div>
-      </div>`;
-  }).join('');
+          <div style="margin-bottom:6px;display:flex;justify-content:space-between;font-size:12px;color:var(--text3);">
+            <span>Đã nộp: <strong style="color:var(--text)">${submitted}/${total}</strong></span>
+            <span>${pct}%</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill${pct >= 80 ? ' ' : pct >= 40 ? ' gold' : ' red'}" style="width:${pct}%"></div>
+          </div>
+          <div class="card-actions-bottom" style="margin-top:12px; gap:4px;">
+            <button class="btn-ghost btn-xs" style="flex:1" onclick="event.stopPropagation();openEditQuiz(${q.id})">✏️ Sửa</button>
+            <button class="btn-ghost btn-xs" style="width:32px" onclick="event.stopPropagation();quickMoveQuiz(${q.id})" title="Di chuyển vào thư mục">📁</button>
+            <button class="btn-danger btn-xs" style="width:32px" onclick="event.stopPropagation();deleteQuiz(${q.id})">✕</button>
+          </div>
+        </div>`;
+    }).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleFolder(fid) {
+  const content = document.getElementById(`folder-content-${fid}`);
+  const arrow = document.getElementById(`folder-arrow-${fid}`);
+  if (!content) return;
+  const isHidden = content.style.display === 'none';
+  content.style.display = isHidden ? 'grid' : 'none';
+  if (arrow) arrow.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
+}
+
+// ── QUIZ FOLDERS ──
+async function loadQuizFolders() {
+  const { data } = await sb.from('quiz_folders').select('*').order('name');
+  allQuizFolders = data || [];
+  refreshFolderSelects();
+  renderFolderList();
+}
+
+function refreshFolderSelects() {
+  const opts = '<option value="">-- Không có thư mục (Mặc định) --</option>' + 
+    allQuizFolders.map(f => `<option value="${f.id}">${f.name}</option>`).join('');
+  
+  const createSel = document.getElementById('quiz-folder-id');
+  if (createSel) createSel.innerHTML = opts;
+  
+  const editSel = document.getElementById('edit-quiz-folder-id');
+  if (editSel) editSel.innerHTML = opts;
+}
+
+function openManageFolders() {
+  renderFolderList();
+  openModal('modal-manage-folders');
+}
+
+function renderFolderList() {
+  const body = document.getElementById('folder-list-body');
+  if (!allQuizFolders.length) {
+    body.innerHTML = '<tr><td style="padding:20px; text-align:center; color:var(--text3);">Chưa có thư mục nào.</td></tr>';
+    return;
+  }
+  body.innerHTML = allQuizFolders.map(f => `
+    <tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:12px; font-weight:600;">📁 ${f.name}</td>
+      <td style="padding:12px; text-align:right;">
+        <button class="btn-danger btn-xs" onclick="deleteQuizFolder(${f.id}, '${f.name.replace(/'/g, "\\'")}')">✕</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function createQuizFolder() {
+  const name = document.getElementById('new-folder-name').value.trim();
+  if (!name) return;
+  const { error } = await sb.from('quiz_folders').insert({ name, created_by: currentUser.id });
+  if (error) return alert(error.message);
+  document.getElementById('new-folder-name').value = '';
+  await loadQuizFolders();
+  await loadQuizzes();
+  showToast('✓ Đã tạo thư mục ' + name);
+}
+
+async function deleteQuizFolder(id, name) {
+  if (!confirm(`Xoá thư mục "${name}"? Các bài quiz trong thư mục này sẽ không bị xoá nhưng sẽ trở thành "Chưa phân loại".`)) return;
+  await sb.from('quizzes').update({ folder_id: null }).eq('folder_id', id);
+  const { error } = await sb.from('quiz_folders').delete().eq('id', id);
+  if (error) return alert(error.message);
+  await loadQuizFolders();
+  await loadQuizzes();
+  showToast('✓ Đã xoá thư mục ' + name);
 }
 
 function selectQuizType(btn, type) {
@@ -765,6 +894,80 @@ function openCreateQuiz() {
   renderAssignPickers();
   document.getElementById('create-quiz-msg').style.display = 'none';
   openModal('modal-create-quiz');
+}
+
+function openCreateQuizForClass(classId) {
+  openCreateQuiz();
+  selectedClassIds.add(classId);
+  renderAssignPickers();
+}
+
+async function openAssignFolderToClass(classId, className) {
+  document.getElementById('assign-folder-class-id').value = classId;
+  document.getElementById('assign-folder-class-info').textContent = `Lớp: ${className}`;
+  
+  const el = document.getElementById('folder-picker-for-class');
+  if (!allQuizFolders.length) {
+    el.innerHTML = '<p class="empty-state">Chưa có thư mục nào. Hãy tạo thư mục ở phần Bài Quiz trước.</p>';
+  } else {
+    el.innerHTML = allQuizFolders.map(f => `
+      <div class="picker-item" onclick="selectFolderToAssign(this, ${f.id})">
+        <span class="pi-name">📂 ${f.name}</span>
+        <span class="pi-check">✓</span>
+      </div>
+    `).join('');
+  }
+  selectedFolderIdToAssign = null;
+  openModal('modal-assign-folder-class');
+}
+
+let selectedFolderIdToAssign = null;
+function selectFolderToAssign(el, id) {
+  document.querySelectorAll('#folder-picker-for-class .picker-item').forEach(i => i.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedFolderIdToAssign = id;
+}
+
+async function assignFolderToClass() {
+  const classId = parseInt(document.getElementById('assign-folder-class-id').value);
+  if (!selectedFolderIdToAssign) return alert('Vui lòng chọn một thư mục');
+  
+  const btn = document.querySelector('#modal-assign-folder-class .btn-primary');
+  btn.disabled = true; btn.textContent = 'Đang xử lý...';
+  
+  try {
+    // 1. Get all quizzes in this folder
+    const { data: quizzes } = await sb.from('quizzes').select('id').eq('folder_id', selectedFolderIdToAssign);
+    if (!quizzes || !quizzes.length) throw new Error('Thư mục này không có bài quiz nào.');
+    
+    // 2. Get all students in this class
+    const { data: members } = await sb.from('class_members').select('student_id').eq('class_id', classId);
+    if (!members || !members.length) throw new Error('Lớp này chưa có học sinh nào.');
+    
+    const quizIds = quizzes.map(q => q.id);
+    const studentIds = members.map(m => m.student_id);
+    
+    // 3. Create assignments (avoid duplicates if possible, or just insert)
+    const assignmentRows = [];
+    quizIds.forEach(qid => {
+      studentIds.forEach(sid => {
+        assignmentRows.push({ quiz_id: qid, student_id: sid });
+      });
+    });
+    
+    // Use upsert to avoid duplicate assignment errors if you have a unique constraint
+    const { error } = await sb.from('quiz_assignments').upsert(assignmentRows, { onConflict: 'quiz_id,student_id' });
+    if (error) throw error;
+    
+    closeModal('modal-assign-folder-class');
+    showToast(`✓ Đã giao ${quizzes.length} bài trong thư mục cho ${studentIds.length} học sinh`);
+    await loadQuizzes(); // Refresh counts
+    
+  } catch (err) {
+    alert('Lỗi: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Xác nhận giao';
+  }
 }
 
 function selectEditQuizType(btn, type) {
@@ -834,8 +1037,11 @@ async function createQuiz() {
   if (!title) return showErr('Nhập tiêu đề quiz.');
   if (!selectedVocabIds.size) return showErr('Chọn ít nhất 1 từ vựng.');
 
+  const fid = document.getElementById('quiz-folder-id').value;
+
   const { data: quiz, error } = await sb.from('quizzes').insert({
     title,
+    folder_id: fid ? parseInt(fid) : null,
     vocab_ids: [...selectedVocabIds],
     type: quizType,
     duration_seconds: quizType === 'quickquiz' ? duration : null,
@@ -884,6 +1090,7 @@ async function openEditQuiz(quizId) {
   selectedStudentIds = new Set();
 
   document.getElementById('edit-quiz-id').value = quiz.id;
+  document.getElementById('edit-quiz-folder-id').value = quiz.folder_id || '';
   document.getElementById('edit-quiz-heading').textContent = `Sửa bài quiz: ${quiz.title}`;
   document.getElementById('edit-quiz-title').value = quiz.title || '';
   document.getElementById('edit-quiz-duration').value = quiz.duration_seconds || '';
@@ -1001,8 +1208,11 @@ async function updateQuiz() {
   if (!title) return showErr('Nhập tiêu đề quiz.');
   if (!selectedVocabIds.size) return showErr('Chọn ít nhất 1 từ vựng.');
 
+  const fid = document.getElementById('edit-quiz-folder-id').value;
+
   const { error } = await sb.from('quizzes').update({
     title,
+    folder_id: fid ? parseInt(fid) : null,
     vocab_ids: [...selectedVocabIds],
     type: quizType,
     duration_seconds: quizType === 'quickquiz' ? duration : null,
@@ -1041,6 +1251,26 @@ async function deleteQuiz(id) {
   if (error) return alert('Lỗi: ' + error.message);
   showToast(`✓ Đã xoá quiz "${title}"`);
   await loadQuizzes();
+}
+
+async function quickMoveQuiz(quizId) {
+  const quiz = allQuizzes.find(q => q.id === quizId);
+  if (!quiz) return;
+  
+  const folderNames = allQuizFolders.length > 0 
+    ? allQuizFolders.map(f => `ID ${f.id}: ${f.name}`).join('\n')
+    : "Chưa có thư mục nào. Hãy tạo thư mục trước.";
+    
+  const input = prompt(`Di chuyển bài "${quiz.title}" vào thư mục:\n\nNhập ID thư mục (để trống để bỏ phân loại):\n${folderNames}\n\nVí dụ: Nhập 1`, quiz.folder_id || '');
+  
+  if (input === null) return;
+  const newFolderId = input.trim() === '' ? null : parseInt(input);
+  
+  const { error } = await sb.from('quizzes').update({ folder_id: newFolderId }).eq('id', quizId);
+  if (error) return alert(error.message);
+  
+  await loadQuizzes();
+  showToast('✓ Đã di chuyển bài quiz');
 }
 
 // ══════════════════════════════════════════
@@ -1131,7 +1361,14 @@ async function loadAnnouncements() {
           </div>
         </div>
         <p style="margin-top:6px">${a.content.substring(0, 100)}${a.content.length > 100 ? '...' : ''}</p>
-        <div style="font-size:10px;color:var(--text3);margin-top:4px;">${fmtDate(a.created_at)}</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:var(--text3); margin-top:8px; border-top:1px solid var(--border); padding-top:6px;">
+          <span>Đăng: ${fmtDate(a.created_at)}</span>
+          ${a.expires_at ? `
+            <span style="color:${new Date(a.expires_at) < new Date() ? 'var(--primary)' : 'var(--accent)'}; font-weight:600;">
+              ⌛ Hết hạn: ${new Date(a.expires_at).toLocaleString('vi-VN')}
+            </span>
+          ` : '<span>⌛ Không hết hạn</span>'}
+        </div>
       </div>
     </div>`).join('');
 }
@@ -1151,6 +1388,7 @@ async function openEditAnnouncement(id) {
   document.getElementById('edit-ann-id').value = a.id;
   document.getElementById('edit-ann-title').value = a.title;
   document.getElementById('edit-ann-content').value = a.content;
+  document.getElementById('edit-ann-expires-at').value = a.expires_at ? a.expires_at.slice(0, 10) : '';
   
   const sel = document.getElementById('edit-ann-class-id');
   sel.innerHTML = '<option value="">Toàn trường (Tất cả học sinh)</option>' + 
@@ -1164,9 +1402,15 @@ async function updateAnnouncement() {
   const title = document.getElementById('edit-ann-title').value.trim();
   const content = document.getElementById('edit-ann-content').value.trim();
   const classId = document.getElementById('edit-ann-class-id').value;
+  const expiresAt = document.getElementById('edit-ann-expires-at').value;
   if (!title || !content) return alert('Nhập tiêu đề và nội dung');
   
-  const row = { title, content, class_id: classId ? parseInt(classId) : null };
+  const row = { 
+    title, 
+    content, 
+    class_id: classId ? parseInt(classId) : null,
+    expires_at: expiresAt || null
+  };
   const { error } = await sb.from('announcements').update(row).eq('id', id);
   if (error) return alert('Lỗi: ' + error.message);
   
@@ -1176,6 +1420,9 @@ async function updateAnnouncement() {
 }
 
 function openCreateAnnouncement() {
+  document.getElementById('ann-title').value = '';
+  document.getElementById('ann-content').value = '';
+  document.getElementById('ann-expires-at').value = '';
   const sel = document.getElementById('ann-class-id');
   sel.innerHTML = '<option value="">Toàn trường (Tất cả học sinh)</option>' + 
     allClasses.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
@@ -1186,9 +1433,15 @@ async function createAnnouncement() {
   const title = document.getElementById('ann-title').value.trim();
   const content = document.getElementById('ann-content').value.trim();
   const classId = document.getElementById('ann-class-id').value;
+  const expiresAt = document.getElementById('ann-expires-at').value;
   if (!title || !content) return alert('Vui lòng nhập đầy đủ tiêu đề và nội dung');
   
-  const row = { title, content, created_by: currentUser.id };
+  const row = { 
+    title, 
+    content, 
+    created_by: currentUser.id,
+    expires_at: expiresAt || null
+  };
   if (classId) row.class_id = parseInt(classId);
 
   const { error } = await sb.from('announcements').insert(row);
@@ -1199,6 +1452,35 @@ async function createAnnouncement() {
   document.getElementById('ann-content').value = '';
   await loadAnnouncements();
   showToast('✓ Đã gửi thông báo');
+}
+
+// ── FEEDBACK ──
+async function loadFeedback() {
+  const { data, error } = await sb.from('student_feedback').select('*, profiles(full_name)').order('created_at', { ascending: false });
+  const el = document.getElementById('feedback-list');
+  if (!el) return;
+  if (!data?.length) { el.innerHTML = '<tr><td colspan="4" class="empty-state">Chưa có góp ý nào</td></tr>'; return; }
+  
+  el.innerHTML = data.map(f => `
+    <tr>
+      <td>
+        <div style="font-weight:600;">${f.profiles?.full_name || 'Học sinh ẩn danh'}</div>
+        <div style="font-size:10px; color:var(--text3);">🕒 ${new Date(f.created_at).toLocaleString('vi-VN')}</div>
+      </td>
+      <td><div style="max-width:400px; white-space:pre-wrap; font-size:14px;">${f.content}</div></td>
+      <td>
+        <button class="btn-danger btn-xs" onclick="deleteFeedback(${f.id})">Xoá</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function deleteFeedback(id) {
+  if (!confirm('Bạn có chắc muốn xoá góp ý này?')) return;
+  const { error } = await sb.from('student_feedback').delete().eq('id', id);
+  if (error) return alert(error.message);
+  loadFeedback();
+  showToast('✓ Đã xoá góp ý');
 }
 
 // ══════════════════════════════════════════
@@ -1338,16 +1620,27 @@ async function viewQuizResults(quizId) {
             <td colspan="4" style="padding:0;">
               <div style="padding:10px 15px; border-left:3px solid var(--accent);">
                 <div style="font-size:11px; font-weight:700; color:var(--text2); margin-bottom:6px; text-transform:uppercase;">Lịch sử làm bài:</div>
-                ${studentResults.map((res, idx) => {
-                  const rPct = Math.round(res.score / res.total * 100);
-                  const isBest = res.id === best.id;
-                  return `
-                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; padding:6px 0; border-bottom:1px solid var(--border);">
-                      <span style="color:var(--text3)">Lần ${studentResults.length - idx}</span>
-                      <span style="font-weight:600; color:${rPct >= 80 ? 'var(--accent)' : rPct >= 50 ? 'var(--gold)' : 'var(--primary)'}">${res.score}/${res.total} (${fmtTime(res.time_spent)}) ${isBest ? '⭐' : ''}</span>
-                      <span style="color:var(--text3); font-size:11px;">${fmtDate(res.completed_at)}</span>
-                    </div>`;
-                }).join('')}
+                ${(() => {
+                  let displayed = studentResults;
+                  if (studentResults.length > 4) {
+                    const first = studentResults[studentResults.length - 1];
+                    const latest3 = studentResults.slice(0, 3);
+                    displayed = [...latest3];
+                    if (!latest3.find(r => r.id === first.id)) displayed.push(first);
+                  }
+                  
+                  return displayed.map((res, idx) => {
+                    const rPct = Math.round(res.score / res.total * 100);
+                    const isFirst = idx === displayed.length - 1 && studentResults.length > 3;
+                    const isBest = res.id === best.id;
+                    return `
+                      <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; padding:6px 0; border-bottom:1px solid var(--border);">
+                        <span style="color:var(--text3)">${isFirst ? '🏁 Lần đầu' : 'Lần ' + (studentResults.length - studentResults.indexOf(res))}</span>
+                        <span style="font-weight:600; color:${rPct >= 80 ? 'var(--accent)' : rPct >= 50 ? 'var(--gold)' : 'var(--primary)'}">${res.score}/${res.total} (${fmtTime(res.time_spent)}) ${isBest ? '⭐' : ''}</span>
+                        <span style="color:var(--text3); font-size:11px;">${fmtDate(res.completed_at)}</span>
+                      </div>`;
+                  }).join('');
+                })()}
               </div>
             </td>
           </tr>`);
@@ -1358,15 +1651,27 @@ async function viewQuizResults(quizId) {
   body.innerHTML = rows.join('');
 }
 
+function toggleHistory(sid) {
+  const el = document.getElementById(`history-${sid}`);
+  if (el) el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
+}
+
 // ══════════════════════════════════════════
 //  TEACHER LEADERBOARD
 // ══════════════════════════════════════════
 let currentTeacherLeaderboardMode = 'xp';
+let currentTeacherPracticeType = 'all';
 
 function switchTeacherLeaderboard(btn, mode) {
   currentTeacherLeaderboardMode = mode;
   document.querySelectorAll('#panel-results .mode-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  loadTeacherLeaderboard();
+}
+
+function switchTeacherPracticeType(type) {
+  currentTeacherPracticeType = type;
+  document.querySelectorAll('.practice-type-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
   loadTeacherLeaderboard();
 }
 
@@ -1376,6 +1681,10 @@ async function loadTeacherLeaderboard() {
   
   if (!listEl) return;
   listEl.innerHTML = '<p class="loading">Đang tải dữ liệu xếp hạng...</p>';
+  
+  if (document.getElementById('filter-leaderboard-level')) {
+    document.getElementById('filter-leaderboard-level').style.display = currentTeacherLeaderboardMode === 'weekly_practice' ? 'none' : 'block';
+  }
 
   try {
     // 1. Get student level mappings
@@ -1439,6 +1748,91 @@ async function loadTeacherLeaderboard() {
       }
     });
 
+    if (currentTeacherLeaderboardMode === 'weekly_practice') {
+      const now = new Date();
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      
+      // Filter and decode
+      let weeklyResults = allResults.filter(r => new Date(r.completed_at) >= weekAgo);
+      if (currentTeacherPracticeType !== 'all') {
+        const offsetMap = { vocab: 1000000, sentence: 2000000, practice: 3000000 };
+        const min = offsetMap[currentTeacherPracticeType];
+        const max = min + 1000000;
+        weeklyResults = weeklyResults.filter(r => r.time_spent >= min && r.time_spent < max);
+      }
+      
+      const normalized = weeklyResults.map(r => ({ ...r, time_spent: r.time_spent % 1000000 }));
+      
+      // 1. Quantity
+      const countMap = {};
+      normalized.forEach(r => countMap[r.student_id] = (countMap[r.student_id] || 0) + 1);
+      const topCount = Object.keys(countMap).map(sid => ({
+        id: sid, name: profileMap[sid] || 'Học sinh', value: countMap[sid], unit: 'lần', level: levelMap[sid]
+      })).sort((a, b) => b.value - a.value).slice(0, 5);
+
+      // 2. Accuracy
+      const accMap = {};
+      normalized.forEach(r => {
+        if (r.total > 0) {
+          if (!accMap[r.student_id]) accMap[r.student_id] = { sum: 0, count: 0 };
+          accMap[r.student_id].sum += (r.score / r.total * 100);
+          accMap[r.student_id].count++;
+        }
+      });
+      const topAcc = Object.keys(accMap).map(sid => ({
+        id: sid, name: profileMap[sid] || 'Học sinh', value: Math.round(accMap[sid].sum / accMap[sid].count), unit: '%', level: levelMap[sid]
+      })).sort((a, b) => b.value - a.value).slice(0, 5);
+
+      // 3. Speed
+      const speedMap = {};
+      normalized.forEach(r => {
+        if (r.time_spent > 0 && r.total > 0) {
+          if (!speedMap[r.student_id]) speedMap[r.student_id] = { sum: 0, count: 0 };
+          speedMap[r.student_id].sum += (r.time_spent / r.total);
+          speedMap[r.student_id].count++;
+        }
+      });
+      const topSpeed = Object.keys(speedMap).map(sid => ({
+        id: sid, name: profileMap[sid] || 'Học sinh', value: parseFloat((speedMap[sid].sum / speedMap[sid].count).toFixed(1)), unit: 's/câu', level: levelMap[sid]
+      })).sort((a, b) => a.value - b.value).slice(0, 5);
+
+      const renderMini = (title, data, icon, unit) => `
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:16px;">
+          <h4 style="margin-bottom:12px; display:flex; align-items:center; gap:8px; font-size:14px; color:var(--primary);">
+            <span>${icon}</span> ${title}
+          </h4>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            ${data.length === 0 ? '<div class="empty-state" style="padding:10px; font-size:12px;">Chưa có dữ liệu</div>' : data.map((item, i) => `
+              <div style="display:flex; align-items:center; gap:10px; padding:6px; border-radius:var(--r-sm);">
+                <span style="font-weight:700; width:20px; font-size:12px; color:var(--text3);">${i+1}</span>
+                <div class="stu-avatar" style="background:${avatarColor(item.name)}; width:24px; height:24px; font-size:10px;">${initials(item.name)}</div>
+                <div style="flex:1; min-width:0;">
+                  <div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.name}</div>
+                  <div style="font-size:9px; color:var(--text3);">HSK ${item.level || 1}</div>
+                </div>
+                <span style="font-size:12px; font-weight:700; color:var(--primary);">${item.value}<small style="font-weight:400; color:var(--text3); margin-left:2px;">${unit}</small></span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+
+      listEl.innerHTML = `
+        <div class="practice-type-tabs" style="display:flex; gap:8px; margin-bottom:15px; background:var(--surface2); padding:4px; border-radius:8px; max-width:600px;">
+          <button class="practice-type-btn ${currentTeacherPracticeType==='all'?'active':''}" data-type="all" onclick="switchTeacherPracticeType('all')">Tất cả</button>
+          <button class="practice-type-btn ${currentTeacherPracticeType==='vocab'?'active':''}" data-type="vocab" onclick="switchTeacherPracticeType('vocab')">Trắc nghiệm từ</button>
+          <button class="practice-type-btn ${currentTeacherPracticeType==='sentence'?'active':''}" data-type="sentence" onclick="switchTeacherPracticeType('sentence')">Luyện câu</button>
+          <button class="practice-type-btn ${currentTeacherPracticeType==='practice'?'active':''}" data-type="practice" onclick="switchTeacherPracticeType('practice')">Tự luyện từ</button>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap:16px; margin-top:10px;">
+          ${renderMini('Chăm chỉ nhất', topCount, '🔥', 'lần')}
+          ${renderMini('Chính xác nhất', topAcc, '🎯', '%')}
+          ${renderMini('Phản xạ nhanh', topSpeed, '⚡', 's/c')}
+        </div>
+      `;
+      return;
+    }
+
     // Sort
     if (currentTeacherLeaderboardMode === 'speed') {
       ranking.sort((a, b) => a.value - b.value);
@@ -1479,4 +1873,11 @@ async function loadTeacherLeaderboard() {
     console.error("Teacher Leaderboard error:", err);
     listEl.innerHTML = '<div class="empty-state">Lỗi tải dữ liệu.</div>';
   }
+}
+
+function toggleHistory(sid) {
+  const el = document.getElementById(`history-${sid}`);
+  if (!el) return;
+  const isHidden = el.style.display === 'none';
+  el.style.display = isHidden ? 'table-row' : 'none';
 }
