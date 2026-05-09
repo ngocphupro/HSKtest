@@ -640,7 +640,7 @@ function renderSQ() {
             ${sqCurrentMode === 0 
               ? `<span class="opt-main">${opt.meaning}</span>
                  <span class="opt-pinyin">${opt.pinyin}</span>`
-              : `<span class="opt-hanzi">${opt.chinese}</span>`
+              : `<span class="opt-main" style="font-size:20px;">${opt.chinese}</span>`
             }
           </button>
         `).join('')}
