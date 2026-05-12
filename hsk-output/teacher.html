@@ -33,7 +33,10 @@
         <span class="nav-icon">🎓</span> Cấp quyền HSK
         <span class="nav-badge" id="hsk-badge" style="display:none">0</span>
       </button>
-      <!-- Nhóm đã bị xoá theo yêu cầu -->
+      <button class="nav-item" id="nav-devices-approve" onclick="showPanel('devices-approve')">
+        <span class="nav-icon">📱</span> Duyệt thiết bị
+        <span class="nav-badge" id="devices-badge" style="display:none">0</span>
+      </button>
     </div>
 
     <div class="sidebar-section">
@@ -153,7 +156,35 @@
       <div id="hsk-approve-list"><p class="loading">Đang tải...</p></div>
     </div>
 
-    <!-- Nhóm đã bị xoá -->
+    <!-- ── DEVICES APPROVE ── -->
+    <div id="panel-devices-approve" class="tab-panel">
+      <div class="page-header">
+        <h1>Quản lý thiết bị</h1>
+        <p>Duyệt và khóa thiết bị đăng nhập của học sinh</p>
+      </div>
+      <div class="section-row">
+        <h3>Thiết bị đang chờ duyệt</h3>
+      </div>
+      <div id="devices-pending-list"><p class="loading">Đang tải...</p></div>
+      
+      <div class="section-row" style="margin-top:32px;">
+        <h3>Tất cả thiết bị đang hoạt động</h3>
+      </div>
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-devices" placeholder="Tìm tên học sinh..." oninput="filterDevices()"/>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Học sinh</th><th>Tên thiết bị</th><th>Lần truy cập cuối</th><th>Thao tác</th></tr>
+          </thead>
+          <tbody id="devices-all-list">
+            <tr><td colspan="4" class="loading">Đang tải...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
     <!-- ── CLASSES ── -->
     <div id="panel-classes" class="tab-panel">
@@ -360,6 +391,19 @@
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('modal-add-student')">Huỷ</button>
       <button class="btn-primary" onclick="addStudent()">Thêm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Student Detail Modal -->
+<div class="modal-overlay" id="modal-student-detail">
+  <div class="modal" style="max-width: 400px;">
+    <h3>Thông tin tài khoản</h3>
+    <div id="student-detail-content">
+      <p class="loading">Đang tải...</p>
+    </div>
+    <div class="modal-actions" style="margin-top: 24px;">
+      <button class="btn-ghost" style="width: 100%; justify-content: center;" onclick="closeModal('modal-student-detail')">Đóng</button>
     </div>
   </div>
 </div>

@@ -284,8 +284,10 @@ tr:last-child td{border-bottom:none}
 @media (hover: hover) {
   .picker-item:hover{background:var(--surface2)}
 }
-.picker-item.selected{background:var(--primary-bg)}
+.picker-item.selected{background:var(--primary-bg) !important; border-color: var(--primary) !important;}
 .picker-item.selected .pi-name{color:var(--primary);font-weight:600}
+.picker-item.assigned-full { background: #f0fdf4 !important; border-color: #bbf7d0 !important; }
+.picker-item.assigned-partial { background: #fffbeb !important; border-color: #fef3c7 !important; }
 .pi-check{margin-left:auto;color:var(--primary);font-size:13px;opacity:0}
 .picker-item.selected .pi-check{opacity:1}
 

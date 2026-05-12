@@ -52,10 +52,30 @@ function speak(text) {
   currentUser = session.user;
   const { data: profile } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
   if (!profile || profile.role !== 'teacher') { window.location.replace('index.html'); return; }
+
+  // Kiểm soát đăng nhập một thiết bị
+  const localToken = localStorage.getItem('hsk_session_token');
+  if (profile.session_token && profile.session_token !== localToken) {
+    alert("Tài khoản của bạn đã được đăng nhập từ một thiết bị khác. Vui lòng đăng nhập lại.");
+    await sb.auth.signOut();
+    window.location.replace('index.html');
+    return;
+  }
+
+  // Kiểm tra định kỳ (mỗi 15 giây)
+  setInterval(async () => {
+    if (!currentUser) return;
+    const { data: p } = await sb.from('profiles').select('session_token').eq('id', currentUser.id).single();
+    if (p && p.session_token && p.session_token !== localStorage.getItem('hsk_session_token')) {
+      alert("Tài khoản của bạn đã được đăng nhập từ một thiết bị khác. Hệ thống sẽ tự động đăng xuất.");
+      await sb.auth.signOut();
+      window.location.replace('index.html');
+    }
+  }, 15000);
   document.getElementById('teacher-name').textContent = profile.full_name;
   document.getElementById('teacher-avatar').textContent = initials(profile.full_name);
   document.getElementById('teacher-avatar').style.background = avatarColor(profile.full_name);
-  await Promise.all([loadStudents(), loadClasses(), loadVocab(), loadQuizzes(), loadQuizFolders(), loadResults(), loadHskBadge(), loadAnnouncements(), loadSentencesT()]);
+  await Promise.all([loadStudents(), loadClasses(), loadVocab(), loadQuizzes(), loadQuizFolders(), loadResults(), loadHskBadge(), loadAnnouncements(), loadSentencesT(), loadDevices()]);
 })();
 
 // ── Navigation ──
@@ -68,6 +88,7 @@ function showPanel(id) {
   });
   closeSidebar();
   if (id === 'hsk-approve') loadHskRequests();
+  if (id === 'devices-approve') loadDevices();
   if (id === 'announcements') loadAnnouncements();
   if (id === 'feedback') loadFeedback();
   if (id === 'vocab') loadVocab();
@@ -159,12 +180,20 @@ function renderStudentGrid(students) {
     const prog = s.progress;
     const progCls = prog >= 70 ? 'pct-good' : prog >= 40 ? 'pct-mid' : 'pct-low';
     const sub = [s.groups ? `Nhóm ${s.groups}` : null, s.isPending ? '⏳ Chờ duyệt' : `Đang học HSK${s.hsk_level}`].filter(Boolean).join(' · ');
+    
+    // Expiry status
+    const expDate = s.expiry_date ? new Date(s.expiry_date) : null;
+    const isExpired = expDate && expDate < new Date();
+    const expStr = s.expiry_date ? fmtDate(s.expiry_date).split(',')[0] : '—'; // Just the date part
+    const expStyle = isExpired ? 'color:var(--danger); font-weight:700;' : 'color:var(--text3);';
+
     return `
       <div class="student-card">
         <div class="stu-avatar" style="background:${avatarColor(s.full_name)}">${initials(s.full_name)}</div>
-        <div class="stu-info">
-          <div class="stu-name">${s.full_name}</div>
+        <div class="stu-info" onclick="openStudentDetail('${s.id}')" style="cursor:pointer;" title="Xem thông tin tài khoản">
+          <div class="stu-name" style="text-decoration:underline; text-underline-offset:2px; color:var(--blue);">${s.full_name}</div>
           <div class="stu-sub">${sub}</div>
+          <div style="font-size:11px; margin-top:4px; ${expStyle}">Hạn: ${expStr} ${isExpired ? ' (Hết hạn)' : ''}</div>
         </div>
         <div class="stu-actions-panel">
           <div style="display:flex;gap:4px;margin-bottom:8px;">
@@ -205,6 +234,13 @@ async function addStudent() {
   });
   if (error) return showErr(error.message);
   if (data?.error) return showErr(data.error);
+
+  // Explicitly save the plain-text password to profiles so teacher can see it
+  // And set initial expiry date (3 months from now)
+  const expiry = new Date();
+  expiry.setMonth(expiry.getMonth() + 3);
+  await sb.from('profiles').update({ password: pw, expiry_date: expiry }).eq('username', username);
+
   msgEl.textContent = '✓ Đã thêm học sinh!'; msgEl.className = 'msg success'; msgEl.style.display = 'block';
   setTimeout(() => { closeModal('modal-add-student');['new-student-name', 'new-student-username', 'new-student-pw'].forEach(id => document.getElementById(id).value = ''); msgEl.style.display = 'none'; }, 1200);
   await loadStudents();
@@ -231,7 +267,16 @@ async function promoteStudent(id, name, curLevel) {
   }, { onConflict: 'student_id' });
   
   if (error) { showToast('Lỗi: ' + error.message); return; }
-  showToast(`✓ Đã nâng cấp ${name} lên HSK${nextLevel}`);
+  
+  // Extend account expiry by 3 months on upgrade
+  const { data: p } = await sb.from('profiles').select('expiry_date').eq('id', id).single();
+  if (p) {
+    let newExp = new Date(p.expiry_date || new Date());
+    newExp.setMonth(newExp.getMonth() + 3);
+    await sb.from('profiles').update({ expiry_date: newExp }).eq('id', id);
+  }
+
+  showToast(`✓ Đã nâng cấp ${name} lên HSK${nextLevel} và cộng thêm 3 tháng hạn dùng`);
   await loadStudents();
 }
 
@@ -249,6 +294,188 @@ async function demoteStudent(id, name, curLevel) {
   if (error) { showToast('Lỗi: ' + error.message); return; }
   showToast(`✓ Đã hạ cấp ${name} xuống HSK${prevLevel}`);
   await loadStudents();
+}
+
+async function openStudentDetail(id) {
+  const { data: p, error } = await sb.from('profiles').select('*').eq('id', id).single();
+  if (error || !p) { showToast('Không tìm thấy thông tin học sinh'); return; }
+  
+  const content = document.getElementById('student-detail-content');
+  if (!content) return;
+
+  const mkValue = p.password || '<span style="color:var(--text3); font-style:italic; font-weight:400;">Mật khẩu đã mã hóa (bảo mật)</span>';
+
+  content.innerHTML = `
+    <div style="display:flex; flex-direction:column; gap:14px; padding:10px 0;">
+      <div class="field">
+        <label>Họ và tên</label>
+        <div style="padding:10px 12px; background:var(--blue-bg); border-radius:var(--r-sm); font-weight:700; color:var(--blue); border:1px solid var(--blue-lt);">
+          ${p.full_name}
+        </div>
+      </div>
+      
+      <div class="field">
+        <label>Tài khoản đăng nhập (TK)</label>
+        <div style="padding:10px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:var(--r-sm); display:flex; align-items:center; justify-content:space-between;">
+          <span style="font-family:monospace; font-size:14px; font-weight:600;">${p.username || '—'}</span>
+          <button class="btn-xs btn-ghost" onclick="navigator.clipboard.writeText('${p.username}'); showToast('Đã chép TK')">Chép</button>
+        </div>
+      </div>
+      
+      <div class="field">
+        <label>Mật khẩu (MK)</label>
+        <div style="padding:10px 12px; background:var(--gold-bg); border:1px solid var(--gold-lt); border-radius:var(--r-sm); display:flex; align-items:center; justify-content:space-between;">
+          <span style="font-family:monospace; font-size:14px; font-weight:600; color:var(--gold);">${mkValue}</span>
+          ${p.password ? `<button class="btn-xs btn-ghost" onclick="navigator.clipboard.writeText('${p.password}'); showToast('Đã chép MK')">Chép</button>` : ''}
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Hạn sử dụng tài khoản</label>
+        <div style="padding:10px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:var(--r-sm); display:flex; align-items:center; justify-content:space-between;">
+          <span style="font-weight:600; color:${new Date(p.expiry_date) < new Date() ? 'var(--danger)' : 'var(--text)'}">
+            ${p.expiry_date ? fmtDate(p.expiry_date) : 'Chưa thiết lập'}
+          </span>
+          <button class="btn-xs btn-primary" onclick="extendExpiry('${p.id}', '${p.full_name}')">Gia hạn 3 tháng</button>
+        </div>
+      </div>
+
+      <div style="margin-top:8px; padding:12px; background:#fdf8ee; border-radius:var(--r-sm); border:1px dashed #e5d5bc;">
+        <div style="font-size:11px; color:#856404; font-weight:600; text-transform:uppercase; margin-bottom:4px;">💡 Mẹo quản lý</div>
+        <p style="font-size:12px; color:#856404; line-height:1.4;">Nếu học sinh quên mật khẩu, hãy nhắc các em sử dụng chức năng đổi mật khẩu hoặc liên hệ quản trị viên.</p>
+      </div>
+    </div>
+  `;
+  openModal('modal-student-detail');
+}
+
+async function extendExpiry(id, name) {
+  if (!confirm(`Gia hạn thêm 3 tháng cho học sinh "${name}"?`)) return;
+  
+  const { data: p } = await sb.from('profiles').select('expiry_date').eq('id', id).single();
+  let newExp = new Date(p ? (p.expiry_date || new Date()) : new Date());
+  
+  // If the account is already expired, start from today
+  if (newExp < new Date()) newExp = new Date();
+  
+  newExp.setMonth(newExp.getMonth() + 3);
+  
+  const { error } = await sb.from('profiles').update({ expiry_date: newExp }).eq('id', id);
+  if (error) { showToast('Lỗi: ' + error.message); return; }
+  
+  showToast(`✓ Đã gia hạn cho ${name} đến ${newExp.toLocaleDateString('vi-VN')}`);
+  closeModal('modal-student-detail');
+  await loadStudents();
+}
+
+// ══════════════════════════════════════════
+//  DEVICES APPROVAL
+// ══════════════════════════════════════════
+let allDevicesData = [];
+
+async function loadDevices() {
+  const { data: devices, error } = await sb.from('devices')
+    .select('*, profiles(full_name, username)')
+    .order('created_at', { ascending: false });
+    
+  if (error) { console.error(error); return; }
+  
+  allDevicesData = devices || [];
+  
+  const pending = allDevicesData.filter(d => d.status === 'pending_approval');
+  const activeBlocked = allDevicesData.filter(d => d.status !== 'pending_approval');
+  
+  const badge = document.getElementById('devices-badge');
+  if (badge) {
+    badge.textContent = pending.length;
+    badge.style.display = pending.length > 0 ? 'inline-block' : 'none';
+  }
+  
+  renderPendingDevices(pending);
+  renderAllDevices(activeBlocked);
+}
+
+function renderPendingDevices(list) {
+  const el = document.getElementById('devices-pending-list');
+  if (!list.length) {
+    el.innerHTML = '<div class="empty-state"><span class="empty-icon">✅</span>Không có thiết bị nào chờ duyệt.</div>';
+    return;
+  }
+  el.innerHTML = list.map(d => `
+    <div class="card" style="border-left: 4px solid var(--warn);">
+      <div class="card-row">
+        <div class="card-info">
+          <h4>📱 ${d.profiles?.full_name} (@${d.profiles?.username || ''})</h4>
+          <p>Thiết bị: ${d.device_name || 'Không rõ'} <br> Xin cấp phép lúc: ${fmtDate(d.created_at)}</p>
+        </div>
+        <div class="card-actions">
+          <button class="btn-primary btn-sm" onclick="approveDevice('${d.id}')">Duyệt</button>
+          <button class="btn-danger btn-sm" onclick="blockDevice('${d.id}')">Từ chối</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderAllDevices(list) {
+  const el = document.getElementById('devices-all-list');
+  if (!list.length) {
+    el.innerHTML = '<tr><td colspan="4" class="empty-state">Không có thiết bị nào.</td></tr>';
+    return;
+  }
+  el.innerHTML = list.map(d => `
+    <tr>
+      <td>
+        <div style="font-weight:600;color:var(--text)">${d.profiles?.full_name}</div>
+        <div style="font-size:12px;color:var(--text3)">@${d.profiles?.username || ''}</div>
+      </td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          ${d.status === 'active' ? '<span style="color:var(--good)">●</span>' : '<span style="color:var(--danger)">●</span>'}
+          ${d.device_name || 'Không rõ'}
+        </div>
+      </td>
+      <td>${fmtDate(d.updated_at)}</td>
+      <td>
+        ${d.status === 'active' 
+          ? `<button class="btn-ghost btn-xs" style="color:var(--danger)" onclick="blockDevice('${d.id}')">Khóa</button>`
+          : `<button class="btn-ghost btn-xs" style="color:var(--good)" onclick="approveDevice('${d.id}')">Mở khóa</button>`
+        }
+        <button class="btn-danger btn-xs" onclick="deleteDevice('${d.id}')">✕ Xóa</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function filterDevices() {
+  const q = document.getElementById('search-devices').value.toLowerCase().trim();
+  const activeBlocked = allDevicesData.filter(d => 
+    d.status !== 'pending_approval' && 
+    (d.profiles?.full_name?.toLowerCase().includes(q) || d.profiles?.username?.toLowerCase().includes(q))
+  );
+  renderAllDevices(activeBlocked);
+}
+
+async function approveDevice(id) {
+  const { error } = await sb.from('devices').update({ status: 'active', updated_at: new Date() }).eq('id', id);
+  if (error) { showToast('Lỗi: ' + error.message); return; }
+  showToast('Đã duyệt thiết bị.');
+  await loadDevices();
+}
+
+async function blockDevice(id) {
+  const { error } = await sb.from('devices').update({ status: 'blocked', updated_at: new Date() }).eq('id', id);
+  if (error) { showToast('Lỗi: ' + error.message); return; }
+  showToast('Đã khóa thiết bị.');
+  await loadDevices();
+}
+
+async function deleteDevice(id) {
+  if (!confirm('Xóa thiết bị này? Học sinh sẽ có thể đăng ký thiết bị mới thay thế.')) return;
+  const { error } = await sb.from('devices').delete().eq('id', id);
+  if (error) { showToast('Lỗi: ' + error.message); return; }
+  showToast('Đã xóa thiết bị.');
+  await loadDevices();
 }
 
 // ══════════════════════════════════════════
@@ -906,17 +1133,55 @@ async function openAssignFolderToClass(classId, className) {
   document.getElementById('assign-folder-class-id').value = classId;
   document.getElementById('assign-folder-class-info').textContent = `Lớp: ${className}`;
   
+  // 1. Lấy danh sách học sinh trong lớp này
+  const { data: members } = await sb.from('class_members').select('student_id').eq('class_id', classId);
+  const studentIds = (members || []).map(m => m.student_id);
+  
+  // 2. Lấy danh sách quiz_id đã được giao cho những học sinh này
+  let assignedQuizIds = new Set();
+  if (studentIds.length > 0) {
+    const { data: currentAssigns } = await sb.from('quiz_assignments')
+      .select('quiz_id')
+      .in('student_id', studentIds);
+    (currentAssigns || []).forEach(a => assignedQuizIds.add(a.quiz_id));
+  }
+
   const el = document.getElementById('folder-picker-for-class');
   if (!allQuizFolders.length) {
     el.innerHTML = '<p class="empty-state">Chưa có thư mục nào. Hãy tạo thư mục ở phần Bài Quiz trước.</p>';
   } else {
-    el.innerHTML = allQuizFolders.map(f => `
-      <div class="picker-item" onclick="selectFolderToAssign(this, ${f.id})">
-        <span class="pi-name">📂 ${f.name}</span>
-        <span class="pi-check">✓</span>
-      </div>
-    `).join('');
+    el.innerHTML = allQuizFolders.map(f => {
+      // Đếm số bài trong thư mục và số bài đã giao
+      const folderQuizzes = allQuizzes.filter(q => q.folder_id === f.id);
+      const quizCount = folderQuizzes.length;
+      const assignedCount = folderQuizzes.filter(q => assignedQuizIds.has(q.id)).length;
+      
+      let badge = '';
+      let cls = '';
+      if (quizCount > 0 && assignedCount === quizCount) {
+        badge = '<span class="badge badge-done" style="margin-left:auto; font-size:10px; box-shadow:0 2px 4px rgba(0,0,0,0.05);">✓ Đã giao hết</span>';
+        cls = 'assigned-full';
+      } else if (assignedCount > 0) {
+        badge = `<span class="badge" style="margin-left:auto; font-size:10px; background:var(--gold-bg); color:var(--gold); border:1px solid var(--gold-lt);">Đã giao ${assignedCount}/${quizCount}</span>`;
+        cls = 'assigned-partial';
+      }
+
+      return `
+        <div class="picker-item ${cls}" onclick="selectFolderToAssign(this, ${f.id})">
+          <span class="pi-name">📂 ${f.name}</span>
+          ${badge}
+          <span class="pi-check">✓</span>
+        </div>
+      `;
+    }).join('');
   }
+  
+  const modalBtn = document.querySelector('#modal-assign-folder-class .modal-actions button.btn-primary, #modal-assign-folder-class .modal-actions button.btn-danger');
+  if (modalBtn) {
+    modalBtn.textContent = 'Xác nhận giao';
+    modalBtn.className = 'btn-primary';
+  }
+
   selectedFolderIdToAssign = null;
   openModal('modal-assign-folder-class');
 }
@@ -926,14 +1191,27 @@ function selectFolderToAssign(el, id) {
   document.querySelectorAll('#folder-picker-for-class .picker-item').forEach(i => i.classList.remove('selected'));
   el.classList.add('selected');
   selectedFolderIdToAssign = id;
+
+  const btn = document.querySelector('#modal-assign-folder-class .modal-actions button:last-child');
+  if (el.classList.contains('assigned-full')) {
+    btn.textContent = 'Thu hồi giao bài';
+    btn.className = 'btn-danger';
+  } else {
+    btn.textContent = 'Xác nhận giao';
+    btn.className = 'btn-primary';
+  }
 }
 
 async function assignFolderToClass() {
   const classId = parseInt(document.getElementById('assign-folder-class-id').value);
   if (!selectedFolderIdToAssign) return alert('Vui lòng chọn một thư mục');
   
-  const btn = document.querySelector('#modal-assign-folder-class .btn-primary');
-  btn.disabled = true; btn.textContent = 'Đang xử lý...';
+  const btn = document.querySelector('#modal-assign-folder-class .modal-actions button:last-child');
+  const isRecall = btn.classList.contains('btn-danger');
+  
+  btn.disabled = true; 
+  const originalText = btn.textContent;
+  btn.textContent = 'Đang xử lý...';
   
   try {
     // 1. Get all quizzes in this folder
@@ -947,26 +1225,35 @@ async function assignFolderToClass() {
     const quizIds = quizzes.map(q => q.id);
     const studentIds = members.map(m => m.student_id);
     
-    // 3. Create assignments (avoid duplicates if possible, or just insert)
-    const assignmentRows = [];
-    quizIds.forEach(qid => {
-      studentIds.forEach(sid => {
-        assignmentRows.push({ quiz_id: qid, student_id: sid });
+    if (isRecall) {
+      if (!confirm(`Bạn có chắc muốn thu hồi (xoá) lệnh giao ${quizzes.length} bài này cho cả lớp?`)) {
+        btn.disabled = false; btn.textContent = originalText;
+        return;
+      }
+      const { error } = await sb.from('quiz_assignments').delete().in('quiz_id', quizIds).in('student_id', studentIds);
+      if (error) throw error;
+      showToast(`✓ Đã thu hồi ${quizzes.length} bài trong thư mục`);
+    } else {
+      // 3. Create assignments
+      const assignmentRows = [];
+      quizIds.forEach(qid => {
+        studentIds.forEach(sid => {
+          assignmentRows.push({ quiz_id: qid, student_id: sid });
+        });
       });
-    });
-    
-    // Use upsert to avoid duplicate assignment errors if you have a unique constraint
-    const { error } = await sb.from('quiz_assignments').upsert(assignmentRows, { onConflict: 'quiz_id,student_id' });
-    if (error) throw error;
+      
+      const { error } = await sb.from('quiz_assignments').upsert(assignmentRows, { onConflict: 'quiz_id,student_id' });
+      if (error) throw error;
+      showToast(`✓ Đã giao ${quizzes.length} bài trong thư mục cho ${studentIds.length} học sinh`);
+    }
     
     closeModal('modal-assign-folder-class');
-    showToast(`✓ Đã giao ${quizzes.length} bài trong thư mục cho ${studentIds.length} học sinh`);
-    await loadQuizzes(); // Refresh counts
+    await loadQuizzes();
     
   } catch (err) {
     alert('Lỗi: ' + err.message);
   } finally {
-    btn.disabled = false; btn.textContent = 'Xác nhận giao';
+    btn.disabled = false; btn.textContent = originalText;
   }
 }
 
@@ -1533,7 +1820,17 @@ async function approveHsk(requestId) {
   if (btn) { btn.disabled = true; btn.textContent = 'Đang duyệt...'; }
   const { error } = await sb.rpc('approve_hsk_request', { p_request_id: requestId });
   if (error) { alert('Lỗi: ' + error.message); if (btn) { btn.disabled = false; btn.textContent = '✓ Duyệt'; } return; }
-  showToast('✅ Đã duyệt yêu cầu thành công!');
+  
+  // Extend account expiry by 3 months on approval
+  const { data: req } = await sb.from('hsk_level_requests').select('student_id').eq('id', requestId).single();
+  if (req) {
+    const { data: p } = await sb.from('profiles').select('expiry_date').eq('id', req.student_id).single();
+    let newExp = new Date(p ? (p.expiry_date || new Date()) : new Date());
+    newExp.setMonth(newExp.getMonth() + 3);
+    await sb.from('profiles').update({ expiry_date: newExp }).eq('id', req.student_id);
+  }
+
+  showToast('✅ Đã duyệt yêu cầu và cộng thêm 3 tháng hạn dùng!');
   await loadHskRequests();
   await loadHskBadge();
 }

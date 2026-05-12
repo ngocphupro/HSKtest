@@ -10,6 +10,8 @@ let practiceQueue = [];
 let practiceIdx   = 0;
 let practiceAnswered = false;
 let currentStuLevel = 1; // Unified Global Level Tracker
+let currentProfile  = null;
+let learnedWritingWords = [];
 let allSentences   = [];
 let hskReviewTarget = 2;
 let hskReviewQueue  = [];
@@ -83,6 +85,27 @@ function speak(text) {
       window.location.replace('index.html'); 
       return; 
     }
+    currentProfile = profile;
+    
+    // Kiểm soát đăng nhập một thiết bị (Chống chia sẻ tài khoản)
+    const localToken = localStorage.getItem('hsk_session_token');
+    if (profile.session_token && profile.session_token !== localToken) {
+      alert("Tài khoản của bạn đã được đăng nhập từ một thiết bị khác. Vui lòng đăng nhập lại.");
+      await sb.auth.signOut();
+      window.location.replace('index.html');
+      return;
+    }
+
+    // Kiểm tra định kỳ xem có ai khác đăng nhập không (mỗi 15 giây)
+    setInterval(async () => {
+      if (!currentUser) return;
+      const { data: p } = await sb.from('profiles').select('session_token').eq('id', currentUser.id).single();
+      if (p && p.session_token && p.session_token !== localStorage.getItem('hsk_session_token')) {
+        alert("Tài khoản của bạn đã được đăng nhập từ một thiết bị khác. Hệ thống sẽ tự động đăng xuất.");
+        await sb.auth.signOut();
+        window.location.replace('index.html');
+      }
+    }, 15000);
     
     document.getElementById('stu-name').textContent   = profile.full_name;
     document.getElementById('stu-avatar').textContent = initials(profile.full_name);
@@ -90,6 +113,9 @@ function speak(text) {
     
     // Set global student level early
     currentStuLevel = profile.current_level || 1;
+    
+    let localLearned = JSON.parse(localStorage.getItem(`hsk_learned_writing_${currentUser.id}`) || '[]');
+    learnedWritingWords = profile.learned_writing_words || localLearned;
     
     // 1. First, get the correct level
     await loadHskLevel();
@@ -128,9 +154,18 @@ function speak(text) {
     const swBtn = document.getElementById('sentence-word-quiz-btn');
     if (swBtn) swBtn.addEventListener('click', () => startSentenceQuiz('words'));
 
-    // Set default leaderboard level
-    const lvlSelect = document.getElementById('leaderboard-level-select');
-    if (lvlSelect) lvlSelect.value = currentStuLevel;
+    // Check expiry and show notification
+    if (profile.expiry_date) {
+      const expStr = fmtDate(profile.expiry_date);
+      const expEl = document.getElementById('stu-expiry-label');
+      if (expEl) expEl.textContent = `Hạn: ${expStr}`;
+
+      const exp = new Date(profile.expiry_date);
+      const daysLeft = Math.ceil((exp - new Date()) / (1000 * 60 * 60 * 24));
+      if (daysLeft <= 7 && daysLeft > 0) {
+        showToast(`Tài khoản của bạn sẽ hết hạn sau ${daysLeft} ngày. Vui lòng liên hệ giáo viên để gia hạn!`, 6000);
+      }
+    }
 
   } catch (err) {
     console.error("Init crash:", err);
@@ -148,7 +183,6 @@ function showPanel(id) {
   });
 
   closeSidebar();
-  if (id === 'leaderboard') loadLeaderboard();
   if (id === 'lessons') loadLessons();
   if (id === 'sentences') loadSentences();
 }
@@ -207,12 +241,16 @@ function renderVocabTable(list) {
       groupRow = `<tr class="table-group-header"><td colspan="5">📁 Chủ đề: ${currentCat}</td></tr>`;
     }
     
+    const isLearned = learnedWritingWords.includes(v.id);
+    const writeBtnStyle = isLearned ? 'color:var(--green); background:var(--green-bg); border-color:var(--green);' : 'color:var(--text3); border-color:var(--border);';
+    
     return `
       ${groupRow}
       <tr>
         <td>
           <div style="display:flex;align-items:center;gap:8px;">
-            <button class="btn-speak" onclick="speak('${v.hanzi}')">🔊</button>
+            <button class="btn-speak" onclick="speak('${v.hanzi.replace(/'/g, "\\'")}')">🔊</button>
+            <button class="btn-ghost btn-sm" style="padding: 2px 6px; font-size: 16px; border: 1px solid transparent; ${writeBtnStyle}" onclick="openWritingOverlay(${v.id})" title="${isLearned ? 'Đã tập' : 'Tập viết chữ này'}">✏️</button>
             <div class="vocab-hanzi">${v.hanzi}</div>
           </div>
         </td>
@@ -955,7 +993,9 @@ function markAnnouncementsAsRead() {
 }
 
 function filterVocabStu() {
-  const q = document.getElementById('search-vocab-stu').value.toLowerCase();
+  const el = document.getElementById('search-vocab-stu');
+  if (!el) return; // element doesn't exist on this page, bail out
+  const q = el.value.toLowerCase();
   renderVocabTable(q ? allVocab.filter(v=>v.hanzi.includes(q)||v.pinyin.toLowerCase().includes(q)||v.meaning.toLowerCase().includes(q)) : allVocab);
 }
 
@@ -976,6 +1016,13 @@ async function loadHskLevel() {
     const { data:levelData } = await sb.from('hsk_student_levels').select('hsk_level').eq('student_id',currentUser.id).maybeSingle();
     currentStuLevel = levelData?.hsk_level || 1;
     document.getElementById('stu-level-label').textContent = `Học sinh · HSK${currentStuLevel}`;
+    
+    // Update expiry info in UI
+    const subtitle = document.getElementById('hsk-subtitle');
+    if (currentProfile.expiry_date && subtitle) {
+      const expStr = fmtDate(currentProfile.expiry_date);
+      subtitle.innerHTML = `Hạn dùng: <strong style="color:var(--primary)">${expStr}</strong> · Hoàn thành HSK${currentStuLevel} để mở khoá HSK${currentStuLevel + 1}`;
+    }
 
     const { data:pending } = await sb.from('hsk_level_requests').select('*').eq('student_id',currentUser.id).eq('status','pending');
     // Quiz results for progress
@@ -1833,285 +1880,8 @@ async function loadHistory() {
   }
 }
 // ══════════════════════════════════════════
-//  LEADERBOARD
+//  SAVING RESULTS
 // ══════════════════════════════════════════
-let currentLeaderboardMode = 'xp';
-let currentPracticeType = 'all'; // all, vocab, sentence, practice
-
-function switchLeaderboard(btn, mode) {
-  currentLeaderboardMode = mode;
-  document.querySelectorAll('.leaderboard-tabs .mode-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  loadLeaderboard();
-}
-
-function switchPracticeType(type) {
-  currentPracticeType = type;
-  document.querySelectorAll('.practice-type-btn').forEach(b => b.classList.toggle('active', b.dataset.type === type));
-  loadLeaderboard();
-}
-
-async function loadLeaderboard() {
-  const listEl = document.getElementById('leaderboard-list');
-  const lvlSelect = document.getElementById('leaderboard-level-select');
-  const subTitleEl = document.getElementById('leaderboard-subtitle');
-  
-  if (!listEl) return;
-  const targetLevel = lvlSelect ? parseInt(lvlSelect.value) : currentStuLevel;
-  listEl.innerHTML = '<p class="loading">Đang tải dữ liệu xếp hạng...</p>';
-  
-  if (lvlSelect) {
-    lvlSelect.style.display = currentLeaderboardMode === 'streak' ? 'none' : 'block';
-  }
-
-  try {
-    // 1. Get all students of the same level (except for Streak)
-    let studentQuery = sb.from('profiles').select('id, full_name');
-    
-    // For most modes, we only care about students in the same HSK level
-    const { data: levelPeers } = await sb.from('hsk_student_levels').select('student_id, hsk_level');
-    const levelMap = {};
-    (levelPeers || []).forEach(lp => levelMap[lp.student_id] = lp.hsk_level);
-    
-    // 2. Get all quiz results to calculate stats
-    // Note: In a production app, this should be a DB View or an RPC for performance
-    const { data: allResults, error } = await sb.from('quiz_results').select('*');
-    if (error) throw error;
-
-    // 3. Get all student profiles
-    const { data: allProfiles } = await sb.from('profiles').select('id, full_name').eq('role', 'student');
-    const profileMap = {};
-    (allProfiles || []).forEach(p => profileMap[p.id] = p.full_name);
-
-    let ranking = [];
-
-    if (currentLeaderboardMode === 'xp') {
-      subTitleEl.textContent = `Top 10 nỗ lực nhất - HSK ${targetLevel}`;
-      const xpMap = {};
-      allResults.forEach(r => {
-        if (levelMap[r.student_id] === targetLevel) {
-          xpMap[r.student_id] = (xpMap[r.student_id] || 0) + (r.score || 0);
-        }
-      });
-      ranking = Object.keys(xpMap).map(sid => ({
-        id: sid,
-        name: profileMap[sid] || 'Học sinh',
-        value: xpMap[sid],
-        unit: 'XP'
-      })).sort((a, b) => b.value - a.value);
-    } 
-    else if (currentLeaderboardMode === 'accuracy') {
-      subTitleEl.textContent = `Top 10 thông thái nhất - HSK ${targetLevel}`;
-      const accMap = {};
-      allResults.forEach(r => {
-        if (levelMap[r.student_id] === targetLevel && r.total > 0) {
-          if (!accMap[r.student_id]) accMap[r.student_id] = { sum: 0, count: 0 };
-          accMap[r.student_id].sum += (r.score / r.total * 100);
-          accMap[r.student_id].count++;
-        }
-      });
-      ranking = Object.keys(accMap)
-        .filter(sid => accMap[sid].count >= 1) // Any quiz counts
-        .map(sid => ({
-          id: sid,
-          name: profileMap[sid] || 'Học sinh',
-          value: Math.round(accMap[sid].sum / accMap[sid].count),
-          unit: '%'
-        })).sort((a, b) => b.value - a.value);
-    }
-    else if (currentLeaderboardMode === 'mastery') {
-      subTitleEl.textContent = `Top 10 hoàn thành xuất sắc - HSK ${targetLevel}`;
-      const masteryMap = {};
-      allResults.forEach(r => {
-        if (levelMap[r.student_id] === targetLevel && (r.score / r.total) >= 0.8) {
-          if (!masteryMap[r.student_id]) masteryMap[r.student_id] = 0;
-          masteryMap[r.student_id]++; // Count all high-score activities (quizzes + practice)
-        }
-      });
-      ranking = Object.keys(masteryMap).map(sid => ({
-        id: sid,
-        name: profileMap[sid] || 'Học sinh',
-        value: masteryMap[sid],
-        unit: 'bài'
-      })).sort((a, b) => b.value - a.value);
-    }
-    else if (currentLeaderboardMode === 'streak') {
-      subTitleEl.textContent = `Top 10 bền bỉ nhất - Toàn trường`;
-      const streakMap = {};
-      
-      // Group results by student and date
-      const studentDates = {};
-      allResults.forEach(r => {
-        const d = new Date(r.completed_at).toLocaleDateString('en-CA');
-        if (!studentDates[r.student_id]) studentDates[r.student_id] = new Set();
-        studentDates[r.student_id].add(d);
-      });
-
-      Object.keys(studentDates).forEach(sid => {
-        let streak = 0;
-        let checkDate = new Date();
-        for (let i = 0; i < 100; i++) {
-          const ds = checkDate.toLocaleDateString('en-CA');
-          if (studentDates[sid].has(ds)) {
-            streak++;
-            checkDate.setDate(checkDate.getDate() - 1);
-          } else {
-            if (i === 0) { checkDate.setDate(checkDate.getDate() - 1); continue; }
-            break;
-          }
-        }
-        if (streak > 0) streakMap[sid] = streak;
-      });
-
-      ranking = Object.keys(streakMap).map(sid => ({
-        id: sid,
-        name: profileMap[sid] || 'Học sinh',
-        value: streakMap[sid],
-        unit: 'ngày'
-      })).sort((a, b) => b.value - a.value);
-    }
-    else if (currentLeaderboardMode === 'speed') {
-      subTitleEl.textContent = `Top 10 phản xạ nhanh - HSK ${targetLevel}`;
-      const speedMap = {};
-      allResults.forEach(r => {
-        if (levelMap[r.student_id] === targetLevel && r.time_spent > 0 && r.total > 0) {
-          if (!speedMap[r.student_id]) speedMap[r.student_id] = { sum: 0, count: 0 };
-          speedMap[r.student_id].sum += (r.time_spent / r.total);
-          speedMap[r.student_id].count++;
-        }
-      });
-      ranking = Object.keys(speedMap)
-        .filter(sid => speedMap[sid].count >= 1)
-        .map(sid => ({
-          id: sid,
-          name: profileMap[sid] || 'Học sinh',
-          value: parseFloat((speedMap[sid].sum / speedMap[sid].count).toFixed(1)),
-          unit: 's/câu'
-        })).sort((a, b) => a.value - b.value);
-    }
-    else if (currentLeaderboardMode === 'weekly_practice') {
-      subTitleEl.textContent = `Xếp hạng Ôn luyện 7 ngày qua — Toàn trường`;
-      
-      const now = new Date();
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      
-      // Filter by time and optionally by practice type offset
-      let weeklyResults = allResults.filter(r => new Date(r.completed_at) >= weekAgo);
-      if (currentPracticeType !== 'all') {
-        const offsetMap = { vocab: 1000000, sentence: 2000000, practice: 3000000 };
-        const min = offsetMap[currentPracticeType];
-        const max = min + 1000000;
-        weeklyResults = weeklyResults.filter(r => r.time_spent >= min && r.time_spent < max);
-      }
-      
-      // Normalize time_spent for calculations
-      const normalized = weeklyResults.map(r => ({ ...r, time_spent: r.time_spent % 1000000 }));
-
-      // 1. Quantity
-      const countMap = {};
-      normalized.forEach(r => countMap[r.student_id] = (countMap[r.student_id] || 0) + 1);
-      const topCount = Object.keys(countMap).map(sid => ({
-        id: sid, name: profileMap[sid] || 'Học sinh', value: countMap[sid], unit: 'lần'
-      })).sort((a, b) => b.value - a.value).slice(0, 5);
-
-      // 2. Accuracy
-      const accMap = {};
-      normalized.forEach(r => {
-        if (r.total > 0) {
-          if (!accMap[r.student_id]) accMap[r.student_id] = { sum: 0, count: 0 };
-          accMap[r.student_id].sum += (r.score / r.total * 100);
-          accMap[r.student_id].count++;
-        }
-      });
-      const topAcc = Object.keys(accMap).map(sid => ({
-        id: sid, name: profileMap[sid] || 'Học sinh', value: Math.round(accMap[sid].sum / accMap[sid].count), unit: '%'
-      })).sort((a, b) => b.value - a.value).slice(0, 5);
-
-      // 3. Speed
-      const speedMap = {};
-      normalized.forEach(r => {
-        if (r.time_spent > 0 && r.total > 0) {
-          if (!speedMap[r.student_id]) speedMap[r.student_id] = { sum: 0, count: 0 };
-          speedMap[r.student_id].sum += (r.time_spent / r.total);
-          speedMap[r.student_id].count++;
-        }
-      });
-      const topSpeed = Object.keys(speedMap).map(sid => ({
-        id: sid, name: profileMap[sid] || 'Học sinh', value: parseFloat((speedMap[sid].sum / speedMap[sid].count).toFixed(1)), unit: 's/câu'
-      })).sort((a, b) => a.value - b.value).slice(0, 5);
-
-      const renderMini = (title, data, icon, unit) => `
-        <div class="weekly-mini-card" style="background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:16px;">
-          <h4 style="margin-bottom:12px; display:flex; align-items:center; gap:8px; font-size:14px; color:var(--primary);">
-            <span>${icon}</span> ${title}
-          </h4>
-          <div style="display:flex; flex-direction:column; gap:8px;">
-            ${data.length === 0 ? '<div class="empty-state" style="padding:10px; font-size:12px;">Chưa có dữ liệu</div>' : data.map((item, i) => {
-              const isMe = item.id === currentUser.id;
-              return `
-                <div style="display:flex; align-items:center; gap:10px; padding:6px; border-radius:var(--r-sm); ${isMe ? 'background:var(--primary-bg);' : ''}">
-                  <span style="font-weight:700; width:20px; font-size:12px; color:var(--text3);">${i+1}</span>
-                  <div class="stu-avatar" style="background:${avatarColor(item.name)}; width:24px; height:24px; font-size:10px;">${initials(item.name)}</div>
-                  <span style="flex:1; font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.name}</span>
-                  <span style="font-size:12px; font-weight:700; color:var(--primary);">${item.value}<small style="font-weight:400; color:var(--text3); margin-left:2px;">${unit}</small></span>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
-      `;
-
-      listEl.innerHTML = `
-        <div class="practice-type-tabs" style="display:flex; gap:8px; margin-bottom:15px; background:var(--surface2); padding:4px; border-radius:8px;">
-          <button class="practice-type-btn ${currentPracticeType==='all'?'active':''}" data-type="all" onclick="switchPracticeType('all')">Tất cả</button>
-          <button class="practice-type-btn ${currentPracticeType==='vocab'?'active':''}" data-type="vocab" onclick="switchPracticeType('vocab')">Trắc nghiệm từ</button>
-          <button class="practice-type-btn ${currentPracticeType==='sentence'?'active':''}" data-type="sentence" onclick="switchPracticeType('sentence')">Luyện câu</button>
-          <button class="practice-type-btn ${currentPracticeType==='practice'?'active':''}" data-type="practice" onclick="switchPracticeType('practice')">Tự luyện từ</button>
-        </div>
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap:16px; margin-top:10px;">
-          ${renderMini('Nỗ lực nhất', topCount, '🔥', 'lần')}
-          ${renderMini('Chính xác nhất', topAcc, '🎯', '%')}
-          ${renderMini('Phản xạ nhanh', topSpeed, '⚡', 's/c')}
-        </div>
-      `;
-      return;
-    }
-
-    // 4. Render top 10
-    const top10 = ranking.slice(0, 10);
-    if (top10.length === 0) {
-      listEl.innerHTML = '<div class="empty-state">Chưa có dữ liệu xếp hạng trong mục này.</div>';
-      return;
-    }
-
-    listEl.innerHTML = `
-      <div class="leaderboard-container">
-        ${top10.map((item, index) => {
-          const isMe = item.id === currentUser.id;
-          const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : (index + 1);
-          const color = avatarColor(item.name);
-          return `
-            <div class="leaderboard-item ${isMe ? 'me' : ''}">
-              <div class="rank-num">${medal}</div>
-              <div class="stu-avatar" style="background:${color}; width:36px; height:36px; font-size:13px;">${initials(item.name)}</div>
-              <div class="stu-name-wrap">
-                <div class="stu-name">${item.name} ${isMe ? '<span class="badge-me">Bạn</span>' : ''}</div>
-                <div class="stu-level-tag">HSK ${levelMap[item.id] || targetLevel}</div>
-              </div>
-              <div class="rank-value">
-                <strong>${item.value}</strong>
-                <span>${item.unit}</span>
-              </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `;
-  } catch (err) {
-    console.error("Leaderboard error:", err);
-    listEl.innerHTML = '<div class="empty-state">Lỗi tải bảng xếp hạng.</div>';
-  }
-}
 
 async function saveResult(score, total, timeSpent, quizId = null, practiceType = null) {
   let finalTime = timeSpent;
@@ -2178,3 +1948,525 @@ function toggleFolderStudent(fid) {
   content.style.display = isHidden ? 'grid' : 'none';
   if (arrow) arrow.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
 }
+
+// ══════════════════════════════════════════
+//  WRITING (Luyện Viết)
+// ══════════════════════════════════════════
+let hanziWriters = [];
+let writingCurrentWord = null;
+
+function openWritingOverlay(vocabId) {
+  writingCurrentWord = allVocab.find(v => v.id === vocabId);
+  if (!writingCurrentWord) return;
+  
+  document.getElementById('writing-word-meaning').textContent = writingCurrentWord.meaning;
+  document.getElementById('writing-word-pinyin').textContent = writingCurrentWord.pinyin;
+  document.getElementById('writing-feedback').style.display = 'none';
+  
+  initHanziWriters(writingCurrentWord.hanzi);
+  
+  document.getElementById('writing-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function exitWritingOverlay() {
+  document.getElementById('writing-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+  // Clean up HanziWriters
+  document.getElementById('writing-canvas-container').innerHTML = '';
+  hanziWriters = [];
+}
+
+function initHanziWriters(chars) {
+  const container = document.getElementById('writing-canvas-container');
+  container.innerHTML = '';
+  hanziWriters = [];
+  
+  // Create a canvas for each character
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    
+    // Only process actual Chinese characters, skip punctuation if any
+    if (!/[\u4e00-\u9fa5]/.test(char)) {
+       const span = document.createElement('div');
+       span.style.fontSize = '80px';
+       span.style.lineHeight = '150px';
+       span.style.color = 'var(--text)';
+       span.textContent = char;
+       container.appendChild(span);
+       continue;
+    }
+
+    const div = document.createElement('div');
+    div.id = `character-target-${i}`;
+    div.style.width = '110px';
+    div.style.height = '110px';
+    div.style.border = '2px dashed var(--border)';
+    div.style.borderRadius = 'var(--r)';
+    div.style.background = 'var(--surface)';
+    container.appendChild(div);
+    
+    const writer = HanziWriter.create(div.id, char, {
+      width: 110,
+      height: 110,
+      padding: 10,
+      showOutline: true,
+      strokeAnimationSpeed: 1.5,
+      delayBetweenStrokes: 200,
+      showHintAfterMisses: 2,
+      highlightColor: '#C84B31',
+    });
+    
+    hanziWriters.push({ writer, isDone: false, char });
+  }
+}
+
+function animateWriting() {
+  if (hanziWriters.length === 0) return;
+  speak(writingCurrentWord.hanzi);
+  // Reset display
+  hanziWriters.forEach(hw => {
+    hw.writer.hideCharacter();
+    hw.writer.showOutline();
+  });
+  // Animate sequentially
+  let chain = Promise.resolve();
+  hanziWriters.forEach(hw => {
+    chain = chain.then(() => new Promise(resolve => {
+       hw.writer.animateCharacter({ onComplete: resolve });
+    })).then(() => new Promise(r => setTimeout(r, 400)));
+  });
+}
+
+function resetWriting() {
+  hanziWriters.forEach(hw => {
+    hw.writer.hideCharacter();
+    hw.writer.hideOutline();
+    hw.writer.cancelQuiz();
+    hw.writer.showOutline();
+    hw.isDone = false;
+  });
+  document.getElementById('writing-feedback').style.display = 'none';
+}
+
+function quizWriting(showOutline) {
+  resetWriting();
+  if (hanziWriters.length === 0) return;
+  
+  // Hide outlines if "Tự viết" mode
+  hanziWriters.forEach(hw => {
+    hw.writer.updateColor('outlineColor', showOutline ? '#DDDDDD' : 'rgba(0,0,0,0)');
+  });
+  
+  startQuizCharacter(0);
+}
+
+function startQuizCharacter(idx) {
+  if (idx >= hanziWriters.length) {
+    // All characters completed
+    markWritingLearned(writingCurrentWord.id);
+    return;
+  }
+  
+  const hw = hanziWriters[idx];
+  hw.writer.quiz({
+    onComplete: function(summaryData) {
+      hw.isDone = true;
+      startQuizCharacter(idx + 1);
+    }
+  });
+}
+
+async function markWritingLearned(vocabId) {
+  const fb = document.getElementById('writing-feedback');
+  fb.innerHTML = '🎉 <strong style="color:var(--text);">Hoàn thành!</strong> Bạn đã viết đúng nét chữ này.';
+  fb.className = 'msg success';
+  fb.style.display = 'block';
+  fb.style.background = 'var(--gold-bg)';
+  fb.style.color = 'var(--gold)';
+  fb.style.border = '1px solid var(--gold)';
+  
+  if (!learnedWritingWords.includes(vocabId)) {
+    learnedWritingWords.push(vocabId);
+    filterVocab(); // refresh vocab table display
+    
+    // Save locally
+    localStorage.setItem(`hsk_learned_writing_${currentUser.id}`, JSON.stringify(learnedWritingWords));
+    
+    // Save to profiles (fire & forget)
+    sb.from('profiles').update({
+      learned_writing_words: learnedWritingWords
+    }).eq('id', currentUser.id).then(({error}) => {
+      if (error) console.warn("Lỗi lưu learned_writing_words lên DB", error);
+    });
+    
+    // Save as stats
+    saveResult(1, 1, 0, null, 'writing_practice');
+  }
+}
+
+
+// ══════════════════════════════════════════
+//  WRITING PRACTICE (Luyện chữ từ điển)
+// ══════════════════════════════════════════
+let wpQueue        = [];
+let wpIdx          = 0;
+let wpHanziWriters = [];
+let wpCurrentWord  = null;
+let wpCorrect      = 0;
+
+function startWritingPractice() {
+  const overlay = document.getElementById('writing-practice-overlay');
+  if (overlay) {
+    overlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    renderWPSetup();
+  }
+}
+
+function exitWritingPractice() {
+  document.getElementById('writing-practice-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+  _wpCleanup();
+}
+
+function _wpCleanup() {
+  const container = document.getElementById('wp-canvas-container');
+  if (container) container.innerHTML = '';
+  wpHanziWriters = [];
+  wpCurrentWord  = null;
+}
+
+function renderWPSetup() {
+  const prog = document.getElementById('wp-prog');
+  if (prog) prog.style.width = '0%';
+
+  let hskButtons = '';
+  for (let i = 1; i <= currentStuLevel; i++) {
+    hskButtons += `
+      <button class="btn-ghost"
+        style="border:1px solid var(--border); padding:15px; flex:1; cursor:pointer; font-weight:600; transition:all 0.2s;"
+        onmouseover="this.style.background='var(--primary-bg)'; this.style.color='var(--primary)'"
+        onmouseout="this.style.background='none'; this.style.color='var(--text2)'"
+        onclick="startWPFiltered(${i})">HSK ${i}</button>`;
+  }
+
+  document.getElementById('wp-area').innerHTML = `
+    <div style="text-align:center; padding:40px 20px;">
+      <div style="font-size:50px; margin-bottom:20px;">✍️</div>
+      <h2 style="font-family:'DM Serif Display',serif; font-size:26px; margin-bottom:10px;">Luyện viết chữ Hán</h2>
+      <p style="color:var(--text2); margin-bottom:8px;">Chọn cấp độ bạn muốn luyện:</p>
+      <p style="color:var(--text3); font-size:13px; margin-bottom:30px;">Mỗi phiên sẽ chọn <strong>10 từ ngẫu nhiên</strong> để bạn tập viết.</p>
+      <div style="display:flex; flex-direction:column; gap:12px; max-width:320px; margin:0 auto;">
+        <button class="btn-primary"
+          style="padding:18px; font-size:16px; cursor:pointer; box-shadow:0 4px 15px rgba(200,75,49,0.2);"
+          onclick="startWPFiltered('all')">🌟 Tổng hợp (HSK 1 – ${currentStuLevel})</button>
+        <div style="display:flex; gap:8px;">
+          ${hskButtons}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function startWPFiltered(mode) {
+  let pool = [];
+  if (mode === 'all') {
+    pool = allVocab.filter(v => v.hsk_level <= currentStuLevel);
+  } else {
+    pool = allVocab.filter(v => v.hsk_level === mode);
+  }
+  // Only keep words with actual Chinese characters
+  pool = pool.filter(v => /[\u4e00-\u9fa5]/.test(v.hanzi));
+
+  if (pool.length < 1) {
+    showToast('Không đủ từ vựng trong phạm vi này.');
+    return;
+  }
+
+  wpQueue   = shuffle(pool).slice(0, 10);
+  wpIdx     = 0;
+  wpCorrect = 0;
+  renderWPWord(0);
+}
+
+function renderWPWord(idx) {
+  _wpCleanup();
+
+  const prog = document.getElementById('wp-prog');
+  if (prog) prog.style.width = `${(idx / wpQueue.length) * 100}%`;
+
+  if (idx >= wpQueue.length) {
+    showWPResult();
+    return;
+  }
+
+  wpIdx = idx;
+  wpCurrentWord = wpQueue[idx];
+  const v = wpCurrentWord;
+  const chars = [...v.hanzi].filter(c => /[\u4e00-\u9fa5]/.test(c));
+
+  const charBoxes = chars.map((c, i) =>
+    `<div id="wp-char-${i}"
+        style="width:120px;height:120px;border:2px dashed var(--border);border-radius:var(--r);background:var(--surface);flex-shrink:0;">
+     </div>`
+  ).join('');
+
+  document.getElementById('wp-area').innerHTML = `
+    <div style="text-align:center; padding:0 0 20px;">
+      <div style="display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:6px;">
+        <button class="btn-speak" style="width:38px;height:38px;font-size:20px;"
+          onclick="speak('${v.hanzi.replace(/'/g, "\\'")}')">🔊</button>
+        <div style="font-family:'Noto Serif SC',serif; font-size:34px; font-weight:700; color:var(--primary);">
+          ${v.hanzi}
+        </div>
+      </div>
+      <div style="font-size:16px; color:var(--text2); margin-bottom:2px;">${v.pinyin}</div>
+      <div style="font-size:14px; color:var(--text3); margin-bottom:16px;">${v.meaning}</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Từ ${idx + 1} / ${wpQueue.length}</div>
+
+      <div id="wp-canvas-container"
+        style="display:flex; gap:16px; flex-wrap:wrap; justify-content:center; margin-bottom:24px;">
+        ${charBoxes}
+      </div>
+
+      <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+        <button class="btn-ghost" style="padding:10px 18px;" onclick="wpAnimate()">▶ Xem cách viết</button>
+        <button class="btn-primary" style="background:var(--blue);box-shadow:none;padding:10px 18px;" onclick="wpStartQuiz(true)">📝 Đồ nét mờ</button>
+        <button class="btn-primary" style="padding:10px 18px;" onclick="wpStartQuiz(false)">🎯 Tự viết</button>
+        <button class="btn-ghost" style="padding:10px 18px;" onclick="wpReset()">🔄 Xóa lại</button>
+      </div>
+
+      <div id="wp-feedback" class="msg" style="margin-top:18px; display:none;"></div>
+
+      <div style="margin-top:14px;">
+        <button class="btn-ghost btn-sm" style="color:var(--text3);" onclick="renderWPWord(${idx + 1})">Bỏ qua →</button>
+      </div>
+    </div>
+  `;
+
+  // Init HanziWriters
+  wpHanziWriters = [];
+  chars.forEach((char, i) => {
+    const writer = HanziWriter.create(`wp-char-${i}`, char, {
+      width: 120,
+      height: 120,
+      padding: 10,
+      showOutline: true,
+      strokeAnimationSpeed: 1.5,
+      delayBetweenStrokes: 200,
+      showHintAfterMisses: 2,
+      highlightColor: '#C84B31',
+    });
+    wpHanziWriters.push({ writer, char, isDone: false });
+  });
+}
+
+function wpAnimate() {
+  if (!wpHanziWriters.length) return;
+  speak(wpCurrentWord.hanzi);
+  wpHanziWriters.forEach(hw => {
+    hw.writer.hideCharacter();
+    hw.writer.showOutline();
+  });
+  let chain = Promise.resolve();
+  wpHanziWriters.forEach(hw => {
+    chain = chain
+      .then(() => new Promise(resolve => hw.writer.animateCharacter({ onComplete: resolve })))
+      .then(() => new Promise(r => setTimeout(r, 400)));
+  });
+}
+
+function wpReset() {
+  wpHanziWriters.forEach(hw => {
+    hw.writer.hideCharacter();
+    hw.writer.hideOutline();
+    hw.writer.cancelQuiz();
+    hw.writer.showOutline();
+    hw.isDone = false;
+  });
+  const fb = document.getElementById('wp-feedback');
+  if (fb) fb.style.display = 'none';
+}
+
+function wpStartQuiz(showOutline) {
+  wpReset();
+  if (!wpHanziWriters.length) return;
+  wpHanziWriters.forEach(hw => {
+    hw.writer.updateColor('outlineColor', showOutline ? '#DDDDDD' : 'rgba(0,0,0,0)');
+  });
+  _wpQuizChar(0);
+}
+
+function _wpQuizChar(idx) {
+  if (idx >= wpHanziWriters.length) {
+    // All chars done → mark correct & auto-advance
+    wpCorrect++;
+    const fb = document.getElementById('wp-feedback');
+    if (fb) {
+      fb.innerHTML = '🎉 <strong style="color:var(--text);">Hoàn thành từ này!</strong>';
+      fb.className = 'msg success';
+      fb.style.background = 'var(--gold-bg)';
+      fb.style.color = 'var(--gold)';
+      fb.style.border = '1px solid var(--gold)';
+      fb.style.display = 'block';
+    }
+    speak(wpCurrentWord.hanzi);
+    // Mark as learned too (reuse existing function)
+    markWritingLearned(wpCurrentWord.id);
+    setTimeout(() => renderWPWord(wpIdx + 1), 1300);
+    return;
+  }
+
+  const hw = wpHanziWriters[idx];
+  hw.writer.quiz({
+    onComplete: function() {
+      hw.isDone = true;
+      _wpQuizChar(idx + 1);
+    }
+  });
+}
+
+function showWPResult() {
+  const prog = document.getElementById('wp-prog');
+  if (prog) prog.style.width = '100%';
+  const pct = Math.round((wpCorrect / wpQueue.length) * 100);
+  const emoji = pct >= 80 ? '🏆' : pct >= 50 ? '👏' : '📚';
+
+  document.getElementById('wp-area').innerHTML = `
+    <div style="text-align:center; padding:60px 20px;">
+      <div style="font-size:80px; margin-bottom:20px;">${emoji}</div>
+      <h2 style="font-family:'DM Serif Display',serif; font-size:32px; margin-bottom:10px;">Hoàn thành!</h2>
+      <p style="color:var(--text2); font-size:18px; margin-bottom:16px;">
+        Bạn đã viết đúng <strong>${wpCorrect}/${wpQueue.length}</strong> từ (${pct}%).
+      </p>
+
+      <div style="max-width:420px; margin:0 auto 32px; text-align:left; display:flex; flex-direction:column; gap:8px;">
+        ${wpQueue.map((v) => `
+          <div style="display:flex; align-items:center; gap:10px; padding:8px 12px;
+                      background:var(--surface2); border-radius:var(--r-sm);">
+            <button class="btn-speak" style="width:28px;height:28px;font-size:14px;flex-shrink:0;"
+              onclick="speak('${v.hanzi.replace(/'/g, "\\'")}')">🔊</button>
+            <span style="font-family:'Noto Serif SC',serif;font-size:22px;font-weight:700;color:var(--primary);min-width:44px;">
+              ${v.hanzi}
+            </span>
+            <span style="font-size:13px;color:var(--text2);">${v.pinyin}</span>
+            <span style="font-size:13px;color:var(--text3);margin-left:auto;">${v.meaning}</span>
+          </div>`).join('')}
+      </div>
+
+      <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+        <button class="btn-primary" style="padding:15px 30px;font-size:16px;background:var(--blue);"
+          onclick="renderWPSetup()">🔄 Làm lại</button>
+        <button class="btn-ghost" style="padding:15px 30px;font-size:16px;border:1px solid var(--border);"
+          onclick="exitWritingPractice()">← Kết thúc</button>
+      </div>
+    </div>
+  `;
+}
+
+// ══════════════════════════════════════════
+//  PROFILE & ACCOUNT
+// ══════════════════════════════════════════
+async function openProfileModal() {
+  const nameInput = document.getElementById('profile-full-name');
+  const msgEl = document.getElementById('profile-msg');
+  const passMsgEl = document.getElementById('password-msg');
+  
+  if (msgEl) msgEl.style.display = 'none';
+  if (passMsgEl) passMsgEl.style.display = 'none';
+  
+  // Get current name from display or global state
+  const currentName = currentProfile?.full_name || document.getElementById('stu-name').textContent;
+  if (nameInput) nameInput.value = currentName;
+  
+  openModal('modal-student-profile');
+}
+
+async function updateProfile() {
+  const nameInput = document.getElementById('profile-full-name');
+  const name = nameInput.value.trim();
+  const msgEl = document.getElementById('profile-msg');
+  const btn = document.getElementById('btn-update-profile');
+  
+  if (!name) {
+    _showProfileMsg(msgEl, 'Vui lòng nhập họ và tên.', 'error');
+    return;
+  }
+  
+  try {
+    btn.disabled = true;
+    const oldText = btn.textContent;
+    btn.textContent = 'Đang lưu...';
+    
+    const { error } = await sb.from('profiles').update({ full_name: name }).eq('id', currentUser.id);
+    if (error) throw error;
+    
+    // Update local UI
+    if (currentProfile) currentProfile.full_name = name;
+    document.getElementById('stu-name').textContent = name;
+    document.getElementById('stu-avatar').textContent = initials(name);
+    document.getElementById('stu-avatar').style.background = avatarColor(name);
+    
+    _showProfileMsg(msgEl, 'Cập nhật thông tin thành công!', 'success');
+    btn.textContent = oldText;
+  } catch (err) {
+    console.error("Update profile error:", err);
+    _showProfileMsg(msgEl, 'Lỗi cập nhật. Vui lòng thử lại.', 'error');
+    btn.textContent = 'Lưu thay đổi';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function changePassword() {
+  const newPass = document.getElementById('profile-new-password').value;
+  const confirmPass = document.getElementById('profile-confirm-password').value;
+  const msgEl = document.getElementById('password-msg');
+  const btn = document.getElementById('btn-change-password');
+  
+  if (!newPass) {
+    _showProfileMsg(msgEl, 'Vui lòng nhập mật khẩu mới.', 'error');
+    return;
+  }
+  if (newPass.length < 6) {
+    _showProfileMsg(msgEl, 'Mật khẩu phải từ 6 ký tự trở lên.', 'error');
+    return;
+  }
+  if (newPass !== confirmPass) {
+    _showProfileMsg(msgEl, 'Mật khẩu xác nhận không khớp.', 'error');
+    return;
+  }
+  
+  try {
+    btn.disabled = true;
+    const oldText = btn.textContent;
+    btn.textContent = 'Đang xử lý...';
+    
+    const { error } = await sb.auth.updateUser({ password: newPass });
+    if (error) throw error;
+    
+    // Save plain-text password to profiles so teacher can see it
+    await sb.from('profiles').update({ password: newPass }).eq('id', currentUser.id);
+    
+    document.getElementById('profile-new-password').value = '';
+    document.getElementById('profile-confirm-password').value = '';
+    
+    _showProfileMsg(msgEl, 'Đổi mật khẩu thành công!', 'success');
+    btn.textContent = oldText;
+  } catch (err) {
+    console.error("Change password error:", err);
+    _showProfileMsg(msgEl, 'Lỗi đổi mật khẩu. Thử thoát và đăng nhập lại.', 'error');
+    btn.textContent = 'Cập nhật mật khẩu';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function _showProfileMsg(el, text, type) {
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'msg ' + type;
+  el.style.display = 'block';
+}
+

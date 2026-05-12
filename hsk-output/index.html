@@ -95,7 +95,75 @@
       const email = raw.includes('@') ? raw : raw + '@example.com';
       const { data, error } = await sb.auth.signInWithPassword({ email, password: pw });
       if (error) { showMsg('Sai tên đăng nhập hoặc mật khẩu.'); btn.textContent = 'Đăng nhập'; btn.disabled = false; return; }
-      await redirectByRole(data.user.id);
+      
+      // Chống dùng chung tài khoản: Tạo session_token mới mỗi lần đăng nhập
+      const sessionToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+      localStorage.setItem('hsk_session_token', sessionToken);
+      
+      const { data: profile } = await sb.from('profiles').select('*').eq('id', data.user.id).single();
+      
+      if (profile && profile.role === 'student') {
+        // --- 0. ACCOUNT EXPIRATION CHECK ---
+        if (profile.expiry_date) {
+          const expiry = new Date(profile.expiry_date);
+          const now = new Date();
+          if (expiry < now) {
+            await sb.auth.signOut();
+            return showMsg('Tài khoản của bạn đã hết hạn (sau 3 tháng). Vui lòng liên hệ giáo viên để gia hạn.');
+          }
+        }
+
+        // --- 1. DEVICE FINGERPRINTING ---
+        let fp = localStorage.getItem('hsk_device_fp');
+        if (!fp) {
+          fp = 'DEV-' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+          localStorage.setItem('hsk_device_fp', fp);
+        }
+        const deviceName = navigator.platform + ' - ' + (navigator.userAgent.includes('Mobile') ? 'Mobile' : 'Desktop');
+        let currentDeviceId = null;
+        
+        // Kiểm tra xem thiết bị đã đăng ký chưa
+        const { data: dev } = await sb.from('devices').select('*').eq('student_id', profile.id).eq('device_fingerprint', fp).single();
+        
+        if (dev) {
+          if (dev.status === 'blocked') {
+            await sb.auth.signOut();
+            return showMsg('Thiết bị này đã bị khóa. Vui lòng liên hệ giáo viên.');
+          }
+          currentDeviceId = dev.id;
+        } else {
+          // Thiết bị mới, đếm số thiết bị hiện tại
+          const { count } = await sb.from('devices').select('*', { count: 'exact', head: true })
+            .eq('student_id', profile.id)
+            .in('status', ['active']);
+            
+          if (count >= 2) {
+            await sb.auth.signOut();
+            return showMsg('Bạn đã đăng nhập tối đa 2 thiết bị. Vui lòng nhờ giáo viên xóa bớt thiết bị cũ để thêm máy mới.');
+          }
+          
+          // Tự động thêm thiết bị vào danh sách (vì chưa quá 2 máy)
+          const { data: newDev, error: devErr } = await sb.from('devices').insert({
+            student_id: profile.id,
+            device_fingerprint: fp,
+            device_name: deviceName,
+            status: 'active'
+          }).select().single();
+          
+          if (!devErr && newDev) {
+            currentDeviceId = newDev.id;
+          }
+        }
+      }
+
+      // Lưu vào Supabase profiles (Bỏ qua nếu chưa có cột)
+      const { error: sessionError } = await sb.from('profiles').update({ session_token: sessionToken }).eq('id', data.user.id);
+      if (sessionError) {
+        console.warn("Chưa có cột session_token trong bảng profiles.");
+      }
+
+      if (profile && profile.role === 'teacher') window.location.replace('teacher.html');
+      else window.location.replace('student.html');
     }
 
     document.addEventListener('keydown', e => { if (e.key === 'Enter') login(); });

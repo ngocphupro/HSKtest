@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>HSK Classroom — Học sinh</title>
   <link rel="stylesheet" href="style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/hanzi-writer@3.5/dist/hanzi-writer.min.js"></script>
 </head>
 <body>
 
@@ -47,8 +48,12 @@
       <button class="nav-item" onclick="showPanel('vocab')">
         <span class="nav-icon">📖</span> Từ điển HSK
       </button>
-      <button class="nav-item" onclick="showPanel('leaderboard')">
-        <span class="nav-icon">🏆</span> Xếp hạng
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Cá nhân</div>
+      <button class="nav-item" onclick="openProfileModal()">
+        <span class="nav-icon">👤</span> Thông tin & Mật khẩu
       </button>
       <button class="nav-item" onclick="openModal('modal-student-feedback')">
         <span class="nav-icon">💡</span> Góp ý giáo viên
@@ -61,7 +66,10 @@
       <div class="user-avatar" id="stu-avatar" style="background:#2A5FA5;">NA</div>
       <div class="sidebar-user-info">
         <strong id="stu-name">Học sinh</strong>
-        <span id="stu-level-label">HSK1</span>
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <span id="stu-level-label" style="font-size:11px; opacity:0.8;">HSK1</span>
+          <span id="stu-expiry-label" style="font-size:10px; color:var(--primary); font-weight:600;">Hạn: —</span>
+        </div>
       </div>
       <button class="btn-role-switch" onclick="logout()" title="Đăng xuất">
         <span style="font-size:14px">⇄</span>
@@ -187,7 +195,10 @@
             <h1>Từ điển HSK</h1>
             <p>Tra cứu và ôn tập từ vựng chuẩn HSK 1-4</p>
           </div>
-          <button class="btn-primary" id="vocab-quiz-btn">📝 Làm trắc nghiệm</button>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn-primary" id="vocab-quiz-btn">📝 Làm trắc nghiệm</button>
+            <button class="btn-primary" id="writing-practice-btn" style="background:var(--blue); box-shadow:none;" onclick="startWritingPractice()">✍️ Luyện chữ</button>
+          </div>
         </div>
       </div>
       <div class="search-wrap" style="display:flex;gap:8px;">
@@ -236,40 +247,10 @@
       </div>
     </div>
 
+    </div>
+
     <!-- History panel removed -->
 
-    <!-- ── LEADERBOARD ── -->
-    <div id="panel-leaderboard" class="tab-panel">
-      <div class="page-header">
-        <div class="page-header-row">
-          <div>
-            <h1>Bảng xếp hạng</h1>
-            <p id="leaderboard-subtitle">Top 10 học sinh xuất sắc nhất</p>
-          </div>
-          <select id="leaderboard-level-select" onchange="loadLeaderboard()" style="padding:6px 12px; border-radius:var(--r-sm); border:1px solid var(--border); background:var(--surface); font-weight:700; color:var(--blue); outline:none; font-family:inherit; cursor:pointer;">
-            <option value="1">HSK 1</option>
-            <option value="2">HSK 2</option>
-            <option value="3">HSK 3</option>
-            <option value="4">HSK 4</option>
-            <option value="5">HSK 5</option>
-            <option value="6">HSK 6</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="leaderboard-tabs" style="display:flex; gap:8px; margin-bottom:20px; overflow-x:auto; padding-bottom:8px;">
-        <button class="mode-btn active" onclick="switchLeaderboard(this, 'xp')">🔥 Điểm XP</button>
-        <button class="mode-btn" onclick="switchLeaderboard(this, 'accuracy')">🎯 Chính xác</button>
-        <button class="mode-btn" onclick="switchLeaderboard(this, 'mastery')">🏆 Trình độ</button>
-        <button class="mode-btn" onclick="switchLeaderboard(this, 'streak')">🔥 Chuỗi ngày</button>
-        <button class="mode-btn" onclick="switchLeaderboard(this, 'speed')">⚡ Phản xạ</button>
-        <button class="mode-btn" onclick="switchLeaderboard(this, 'weekly_practice')">📅 Ôn luyện Tuần</button>
-      </div>
-
-      <div id="leaderboard-list">
-        <p class="loading">Đang tải...</p>
-      </div>
-    </div>
 
     <!-- Announcements panel removed -->
 
@@ -337,6 +318,57 @@
   </div>
 </div>
 
+<!-- ══════ STUDENT PROFILE MODAL ══════ -->
+<div class="modal-overlay" id="modal-student-profile">
+  <div class="modal" style="max-width:450px;">
+    <h3>Cập nhật thông tin</h3>
+    <p style="font-size:13px; color:var(--text2); margin-bottom:15px;">Thay đổi thông tin cá nhân của bạn.</p>
+    
+    <div class="field">
+      <label>Họ và tên</label>
+      <input type="text" id="profile-full-name" placeholder="Nhập họ tên mới...">
+    </div>
+    
+    <div id="profile-msg" class="msg" style="display:none; margin-bottom: 10px;"></div>
+    
+    <div class="modal-actions" style="margin-bottom: 24px;">
+      <button class="btn-ghost" onclick="closeModal('modal-student-profile')">Đóng</button>
+      <button class="btn-primary" id="btn-update-profile" onclick="updateProfile()">Lưu thay đổi</button>
+    </div>
+
+    <h3 style="margin-top: 24px; border-top: 1px solid var(--border); padding-top: 20px;">Đổi mật khẩu</h3>
+    <p style="font-size:13px; color:var(--text2); margin-bottom:15px;">Nhập mật khẩu mới để bảo mật tài khoản.</p>
+    
+    <div class="field">
+      <label>Mật khẩu mới</label>
+      <input type="password" id="profile-new-password" placeholder="Tối thiểu 6 ký tự">
+    </div>
+    
+    <div class="field">
+      <label>Xác nhận mật khẩu mới</label>
+      <input type="password" id="profile-confirm-password" placeholder="Nhập lại mật khẩu mới">
+    </div>
+    
+    <div id="password-msg" class="msg" style="display:none; margin-bottom: 10px;"></div>
+    
+    <div class="modal-actions">
+      <button class="btn-primary" id="btn-change-password" onclick="changePassword()">Cập nhật mật khẩu</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ WRITING PRACTICE OVERLAY ══════ -->
+<div class="hsk-overlay" id="writing-practice-overlay">
+  <div class="hsk-overlay-inner" style="max-width:640px;">
+    <div class="overlay-topbar">
+      <strong>✍️ Luyện chữ Hán</strong>
+      <button class="btn-ghost btn-sm" onclick="exitWritingPractice()">✕ Thoát</button>
+    </div>
+    <div class="quiz-progress-bar"><div class="quiz-progress-fill" id="wp-prog"></div></div>
+    <div id="wp-area" style="padding:20px;"></div>
+  </div>
+</div>
+
 <!-- ── VOCAB QUIZ OVERLAY (Like Sentence Quiz) ── -->
 <div class="hsk-overlay" id="vocab-quiz-overlay">
   <div class="hsk-overlay-inner">
@@ -346,6 +378,35 @@
     </div>
     <div class="quiz-progress-bar"><div class="quiz-progress-fill" id="vq-prog"></div></div>
     <div id="vq-area" style="padding:20px;"></div>
+  </div>
+</div>
+
+<!-- ── WRITING CANVAS OVERLAY ── -->
+<div class="hsk-overlay" id="writing-overlay">
+  <div class="hsk-overlay-inner" style="max-width:800px; padding:20px; display:flex; flex-direction:column; align-items:center; overflow-y:auto !important;">
+    <div class="overlay-topbar" style="width:100%;">
+      <strong>Tập Viết Chữ Hán</strong>
+      <button class="btn-ghost btn-sm" onclick="exitWritingOverlay()">✕ Thoát</button>
+    </div>
+    
+    <div style="text-align:center; margin:20px 0;">
+      <h2 id="writing-word-meaning" style="font-family:'DM Serif Display',serif; font-size:24px; margin-bottom:5px;">Nghĩa</h2>
+      <p id="writing-word-pinyin" style="color:var(--text2); font-size:18px;">pinyin</p>
+    </div>
+
+    <!-- Canvas Container -->
+    <div id="writing-canvas-container" style="display:flex; gap:16px; flex-wrap:wrap; justify-content:center; margin-bottom:30px;">
+       <!-- Canvases will be injected here -->
+    </div>
+
+    <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap; width:100%;">
+      <button class="btn-ghost" onclick="animateWriting()">▶ Xem cách viết</button>
+      <button class="btn-primary" style="background:var(--blue); box-shadow: none;" onclick="quizWriting(true)">📝 Đồ nét mờ</button>
+      <button class="btn-primary" onclick="quizWriting(false)">🎯 Tự viết</button>
+      <button class="btn-ghost" onclick="resetWriting()">🔄 Xóa làm lại</button>
+    </div>
+    
+    <div id="writing-feedback" class="msg" style="margin-top:20px; text-align:center; display:none; width:100%;"></div>
   </div>
 </div>
 
