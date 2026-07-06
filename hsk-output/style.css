@@ -701,4 +701,112 @@ body.auth-page{display:flex;align-items:center;justify-content:center;min-height
 .q-hanzi { font-family: 'Noto Serif SC', serif; font-size: 48px; color: var(--primary); font-weight: 700; margin-bottom: 10px; }
 .q-num { font-size: 12px; color: var(--text3); }
 
+/* ── OCR IMAGE RECOGNITION ── */
+@keyframes spin { to { transform: rotate(360deg); } }
 
+.ocr-drop-zone {
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-lg);
+  padding: 28px 20px;
+  text-align: center;
+  cursor: pointer;
+  background: var(--accent-bg);
+  transition: all 0.2s;
+  user-select: none;
+}
+.ocr-drop-zone:hover, .ocr-drop-zone.drag-over {
+  background: var(--accent-lt);
+  border-color: var(--accent);
+  transform: scale(1.01);
+}
+.ocr-drop-icon { font-size: 40px; margin-bottom: 10px; }
+.ocr-drop-text { font-size: 15px; font-weight: 600; color: var(--accent); }
+.ocr-drop-sub { font-size: 12px; color: var(--text3); margin-top: 4px; }
+
+/* OCR Result area */
+.ocr-detected-text {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.ocr-detected-label {
+  font-size: 11px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text3); margin-bottom: 8px;
+}
+.ocr-text-raw {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 22px;
+  color: var(--text);
+  line-height: 1.6;
+  word-break: break-all;
+  letter-spacing: 2px;
+}
+.ocr-char-chips {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
+}
+.ocr-char-chip {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 8px 14px; border-radius: var(--r);
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 54px;
+}
+.ocr-char-chip:hover { border-color: var(--accent); background: var(--accent-bg); transform: translateY(-2px); }
+.ocr-char-chip .chip-hanzi { font-family: 'Noto Serif SC', serif; font-size: 26px; color: var(--accent); font-weight: 700; line-height: 1; }
+.ocr-char-chip .chip-sub { font-size: 10px; color: var(--text3); margin-top: 3px; }
+.ocr-char-chip.found { border-color: var(--accent); background: var(--accent-bg); }
+.ocr-char-chip.not-found { opacity: 0.45; }
+
+/* OCR vocab match cards */
+.ocr-match-card {
+  background: var(--surface);
+  border: 1.5px solid var(--accent-lt);
+  border-radius: var(--r);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  animation: fadeIn 0.3s ease forwards;
+}
+.ocr-match-card:hover { border-color: var(--accent); box-shadow: var(--shadow); transform: translateX(3px); }
+.ocr-match-hanzi { font-family: 'Noto Serif SC', serif; font-size: 28px; color: var(--accent); font-weight: 700; min-width: 42px; text-align: center; }
+.ocr-match-info { flex: 1; }
+.ocr-match-pinyin { font-size: 12px; color: var(--text3); }
+.ocr-match-meaning { font-size: 14px; font-weight: 600; color: var(--text); }
+.ocr-no-match { text-align: center; padding: 16px; color: var(--text3); font-size: 14px; }
+
+.ocr-translation-box {
+  background: var(--blue-bg);
+  border: 1px solid var(--blue-lt);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.ocr-pinyin-box {
+  background: var(--gold-bg);
+  border: 1px solid var(--gold-lt);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.ocr-pinyin-text {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--gold);
+  line-height: 1.6;
+  letter-spacing: 0.5px;
+}
+.ocr-translation-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--blue);
+  line-height: 1.6;
+}

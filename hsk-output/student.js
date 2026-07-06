@@ -251,6 +251,7 @@ function renderVocabTable(list) {
           <div style="display:flex;align-items:center;gap:8px;">
             <button class="btn-speak" onclick="speak('${v.hanzi.replace(/'/g, "\\'")}')">🔊</button>
             <button class="btn-ghost btn-sm" style="padding: 2px 6px; font-size: 16px; border: 1px solid transparent; ${writeBtnStyle}" onclick="openWritingOverlay(${v.id})" title="${isLearned ? 'Đã tập' : 'Tập viết chữ này'}">✏️</button>
+            <button class="btn-ghost btn-sm btn-report-vocab" data-vid="${v.id}" style="padding:2px 6px;font-size:13px;border:1px solid transparent;color:var(--text3);" title="Báo cáo từ vựng sai">🚩</button>
             <div class="vocab-hanzi">${v.hanzi}</div>
           </div>
         </td>
@@ -2468,5 +2469,451 @@ function _showProfileMsg(el, text, type) {
   el.textContent = text;
   el.className = 'msg ' + type;
   el.style.display = 'block';
+}
+
+// ── EVENT DELEGATION: Báo cáo từ vựng sai ──
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.btn-report-vocab');
+  if (!btn) return;
+  e.stopPropagation();
+  const vid = parseInt(btn.dataset.vid);
+  if (!vid) return;
+  const v = allVocab.find(x => x.id === vid);
+  if (!v) return;
+  document.getElementById('report-vocab-id').value = v.id;
+  document.getElementById('report-vocab-display').value = v.hanzi + ' (' + v.pinyin + ') - ' + v.meaning;
+  document.getElementById('report-vocab-content').value = '';
+  const msgEl = document.getElementById('report-vocab-msg');
+  if (msgEl) { msgEl.style.display = 'none'; msgEl.textContent = ''; }
+  openModal('modal-report-vocab');
+});
+
+async function submitVocabReport() {
+  const vocabId = document.getElementById('report-vocab-id').value;
+  const vocabDisplay = document.getElementById('report-vocab-display').value;
+  const reason = document.getElementById('report-vocab-content').value.trim();
+  const msgEl = document.getElementById('report-vocab-msg');
+  if (!reason) {
+    if (msgEl) { msgEl.textContent = 'Vui lòng nhập nội dung báo cáo.'; msgEl.className = 'msg error'; msgEl.style.display = 'block'; }
+    return;
+  }
+  try {
+    const text = '\u{1F4E2} Báo cáo từ vựng sai:\n- Từ vựng: ' + vocabDisplay + '\n- Lý do/Góp ý: ' + reason;
+    const { error } = await sb.from('student_feedback').insert({ student_id: currentUser.id, content: text });
+    if (error) throw error;
+    closeModal('modal-report-vocab');
+    showToast('✓ Báo cáo sai sót đã được gửi đến giáo viên!');
+  } catch (err) {
+    console.error('Report vocab error:', err);
+    if (msgEl) { msgEl.textContent = 'Lỗi gửi báo cáo. Vui lòng thử lại.'; msgEl.className = 'msg error'; msgEl.style.display = 'block'; }
+  }
+}
+
+// ══════════════════════════════════════════
+//  OCR — Nhận diện chữ Hán từ ảnh
+// ══════════════════════════════════════════
+let ocrStream = null;
+
+function openOcrModal() {
+  resetOcr();
+  document.getElementById('modal-ocr').classList.add('open');
+
+  // Paste from clipboard
+  const handler = async (e) => {
+    if (!document.getElementById('modal-ocr').classList.contains('open')) return;
+    const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) handleOcrFile(file);
+        break;
+      }
+    }
+  };
+  document.removeEventListener('paste', handler);
+  document.addEventListener('paste', handler);
+
+  // Drag & drop
+  const zone = document.getElementById('ocr-drop-zone');
+  if (zone) {
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.style.borderColor = 'var(--accent)'; });
+    zone.addEventListener('dragleave', () => { zone.style.borderColor = ''; });
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.style.borderColor = '';
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) handleOcrFile(file);
+    });
+  }
+}
+
+function closeOcrModal() {
+  document.getElementById('modal-ocr').classList.remove('open');
+  stopCamera();
+  resetOcr();
+}
+
+function resetOcr() {
+  const preview = document.getElementById('ocr-preview-wrap');
+  const results = document.getElementById('ocr-results');
+  const progress = document.getElementById('ocr-progress-wrap');
+  const img = document.getElementById('ocr-preview-img');
+  const input = document.getElementById('ocr-file-input');
+  if (preview) preview.style.display = 'none';
+  if (results) { results.style.display = 'none'; results.innerHTML = ''; }
+  if (progress) progress.style.display = 'none';
+  if (img) img.src = '';
+  if (input) input.value = '';
+}
+
+function handleOcrFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = document.getElementById('ocr-preview-img');
+    if (img) img.src = e.target.result;
+    const wrap = document.getElementById('ocr-preview-wrap');
+    if (wrap) wrap.style.display = 'block';
+    const results = document.getElementById('ocr-results');
+    if (results) { results.style.display = 'none'; results.innerHTML = ''; }
+  };
+  reader.readAsDataURL(file);
+}
+
+async function translateChinese(text) {
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=zh-CN&tl=vi&dt=t&dt=rm&q=${encodeURIComponent(text)}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    
+    let translation = '';
+    let pinyin = '';
+    
+    if (json && json[0]) {
+      for (const item of json[0]) {
+        if (item[0]) translation += item[0];
+      }
+      for (const item of json[0]) {
+        if (item[3]) {
+          pinyin += (pinyin ? ' ' : '') + item[3];
+        } else if (item[2]) {
+          pinyin += (pinyin ? ' ' : '') + item[2];
+        }
+      }
+    }
+    
+    return {
+      translation: translation.trim() || 'Chưa rõ',
+      pinyin: pinyin.trim() || 'Chưa rõ'
+    };
+  } catch (err) {
+    console.error('Translation error:', err);
+    return { translation: 'Không thể dịch', pinyin: 'Không thể dịch' };
+  }
+}
+
+const ocrTokenCache = new Map();
+
+async function resolveOcrToken(token) {
+  const cleanToken = String(token || '').trim();
+  if (!cleanToken) return null;
+  if (ocrTokenCache.has(cleanToken)) return ocrTokenCache.get(cleanToken);
+
+  const vocabMatch = allVocab.find(v => v.hanzi === cleanToken);
+  if (vocabMatch) {
+    const exact = {
+      token: cleanToken,
+      pinyin: vocabMatch.pinyin || 'Chưa rõ',
+      meaning: vocabMatch.meaning || 'Chưa rõ',
+      source: 'vocab'
+    };
+    ocrTokenCache.set(cleanToken, exact);
+    return exact;
+  }
+
+  const translated = await translateChinese(cleanToken);
+  const fallback = {
+    token: cleanToken,
+    pinyin: translated.pinyin || 'Chưa rõ',
+    meaning: translated.translation || 'Chưa rõ',
+    source: 'translate'
+  };
+  ocrTokenCache.set(cleanToken, fallback);
+  return fallback;
+}
+
+async function buildOcrLineData(line) {
+  const tokens = segmentChinese(line)
+    .map(part => String(part.text || '').trim())
+    .filter(part => part && /[\u4e00-\u9fff]/.test(part));
+
+  const detailedTokens = [];
+  for (const token of tokens) {
+    const resolved = await resolveOcrToken(token);
+    if (resolved) detailedTokens.push(resolved);
+  }
+
+  const sentenceTranslation = await translateChinese(line);
+  return {
+    chinese: line,
+    tokens: detailedTokens,
+    pinyin: sentenceTranslation.pinyin || 'Chưa rõ',
+    translation: sentenceTranslation.translation || 'Chưa rõ',
+    tokenGlosses: detailedTokens.map(item => `${item.token}: ${item.meaning}`).join(' · ')
+  };
+}
+
+async function runOcr() {
+  const img = document.getElementById('ocr-preview-img');
+  if (!img || !img.src || img.src === window.location.href) {
+    showToast('Vui lòng chọn ảnh trước.');
+    return;
+  }
+
+  const progressWrap = document.getElementById('ocr-progress-wrap');
+  const progressBar  = document.getElementById('ocr-progress-bar');
+  const statusText   = document.getElementById('ocr-status-text');
+  const resultsEl    = document.getElementById('ocr-results');
+  const runBtn       = document.getElementById('ocr-run-btn');
+
+  if (progressWrap) progressWrap.style.display = 'block';
+  if (resultsEl)   { resultsEl.style.display = 'none'; resultsEl.innerHTML = ''; }
+  if (runBtn)      runBtn.disabled = true;
+
+  try {
+    if (typeof Tesseract === 'undefined') throw new Error('Tesseract chưa tải xong. Vui lòng tải lại trang.');
+
+    if (statusText) statusText.textContent = 'Đang nhận diện chữ Hán...';
+    if (progressBar) progressBar.style.width = '10%';
+
+    const result = await Tesseract.recognize(img.src, 'chi_sim+chi_tra', {
+      logger: (m) => {
+        if (m.status === 'recognizing text' && progressBar) {
+          const pct = Math.round((m.progress || 0) * 80) + 10;
+          progressBar.style.width = pct + '%';
+        }
+        if (statusText) {
+          if (m.status === 'loading language traineddata') statusText.textContent = 'Đang tải dữ liệu ngôn ngữ...';
+          else if (m.status === 'initializing tesseract') statusText.textContent = 'Khởi động OCR...';
+          else if (m.status === 'recognizing text') statusText.textContent = 'Đang nhận diện văn bản...';
+        }
+      }
+    });
+
+    if (progressBar) progressBar.style.width = '90%';
+    if (statusText) statusText.textContent = 'Đang dịch và đồng bộ từ điển...';
+
+    const rawText = result.data.text || '';
+    
+    // Extract unique Chinese characters in order of appearance
+    const uniqueChars = [];
+    for (const char of rawText) {
+      if (/[\u4e00-\u9fa5]/.test(char) && !uniqueChars.includes(char)) {
+        uniqueChars.push(char);
+      }
+    }
+
+    const ocrLines = rawText
+      .split(/\r?\n+/)
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    const translatedLines = ocrLines.length
+      ? await Promise.all(ocrLines.map(buildOcrLineData))
+      : [];
+
+    // Automatically translate and insert new words/characters not found in allVocab
+    const newChars = uniqueChars.filter(char => !allVocab.some(v => v.hanzi === char));
+    if (newChars.length > 0) {
+      if (statusText) statusText.textContent = `Đang dịch và bổ sung ${newChars.length} từ mới...`;
+      
+      const insertPromises = newChars.map(async (char) => {
+        const resTrans = await translateChinese(char);
+        try {
+          const { data: newV, error: err } = await sb.from('vocab').insert({
+            hanzi: char,
+            pinyin: resTrans.pinyin,
+            meaning: resTrans.translation,
+            hsk_level: 0,
+            category: 'Nhận diện ảnh'
+          }).select().single();
+          
+          if (!err && newV) {
+            allVocab.push(newV);
+          }
+        } catch (dbErr) {
+          console.error("Lỗi tự động thêm từ mới:", char, dbErr);
+        }
+      });
+      await Promise.all(insertPromises);
+      showToast(`✓ Đã tự động thêm ${newChars.length} từ mới vào HSK New!`);
+    }
+
+    if (statusText) statusText.textContent = 'Đang dịch văn bản toàn văn...';
+    if (progressBar) progressBar.style.width = '95%';
+    const fullTranslation = await translateChinese(rawText);
+
+    if (progressBar) progressBar.style.width = '100%';
+    
+    setTimeout(() => {
+      if (progressWrap) progressWrap.style.display = 'none';
+      renderOcrResults(rawText, uniqueChars, translatedLines, fullTranslation);
+    }, 400);
+
+  } catch (err) {
+    console.error('OCR error:', err);
+    if (progressWrap) progressWrap.style.display = 'none';
+    if (resultsEl) {
+      resultsEl.style.display = 'block';
+      resultsEl.innerHTML = `<div style="text-align:center;padding:20px;color:var(--primary); border: 1px dashed var(--border); border-radius: var(--r);">
+        <div style="font-size:32px;margin-bottom:8px;">⚠️</div>
+        <strong>Lỗi nhận diện</strong>
+        <p style="font-size:13px;color:var(--text2);margin-top:6px;">${err.message || 'Không thể nhận diện ảnh này. Hãy thử ảnh rõ hơn.'}</p>
+      </div>`;
+    }
+  } finally {
+    if (runBtn) runBtn.disabled = false;
+  }
+}
+
+function renderOcrResults(rawText, uniqueChars, translatedLines, fullTranslation) {
+  const el = document.getElementById('ocr-results');
+  if (!el) return;
+  el.style.display = 'block';
+
+  if (!uniqueChars.length) {
+    el.innerHTML = `<div style="text-align:center;padding:20px; border: 1px dashed var(--border); border-radius: var(--r); background: var(--surface2);">
+      <div style="font-size:32px;margin-bottom:8px;">🔍</div>
+      <strong style="color:var(--text); font-weight: 700;">Không tìm thấy chữ Hán nào</strong>
+      <p style="font-size:13px;color:var(--text2);margin-top:6px;">Văn bản nhận diện:<br><em style="color:var(--text3);">${escapeHtml(rawText.trim()) || '(Trống)'}</em></p>
+    </div>`;
+    return;
+  }
+
+  const lineBlocks = translatedLines && translatedLines.length
+    ? translatedLines
+    : [{ chinese: rawText.trim(), pinyin: fullTranslation?.pinyin || 'Chưa rõ', translation: fullTranslation?.translation || 'Chưa rõ' }];
+
+  const joinedChinese = lineBlocks.map(item => item.chinese).filter(Boolean).join('\n');
+  const joinedPinyin = lineBlocks.map(item => item.pinyin).filter(Boolean).join('\n');
+  const joinedTranslation = lineBlocks.map(item => item.translation).filter(Boolean).join('\n');
+  const joinedTokenGlosses = lineBlocks
+    .map(item => item.tokenGlosses)
+    .filter(Boolean)
+    .join('\n');
+  const tokenCards = lineBlocks.flatMap((line, lineIndex) => {
+    if (line.tokens && line.tokens.length) {
+      return line.tokens.map((token, tokenIndex) => ({ ...token, lineIndex, tokenIndex }));
+    }
+    const fallbackToken = line.chinese.trim();
+    if (!fallbackToken) return [];
+    return [{
+      token: fallbackToken,
+      pinyin: line.pinyin || 'Chưa rõ',
+      meaning: line.translation || 'Chưa rõ',
+      source: 'fallback',
+      lineIndex,
+      tokenIndex: 0
+    }];
+  });
+
+  // 1. Raw Chinese text block (auto aligns line wrap just like the image)
+  let html = `
+    <div style="margin-top: 16px; margin-bottom: 24px;">
+      <div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text3); margin-bottom: 8px;">CHỮ HÁN ĐƯỢC NHẬN DIỆN</div>
+      <div style="font-family: 'Noto Serif SC', serif; font-size: 26px; line-height: 1.8; color: var(--text); padding: 12px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r); white-space: pre-wrap; word-break: break-word; letter-spacing: 1px;">${escapeHtml(joinedChinese || rawText.trim())}</div>
+    </div>`;
+
+  // 2. Pinyin block aligned to the same line breaks as the Chinese OCR output
+  html += `
+    <div style="margin-bottom: 20px;">
+      <div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); margin-bottom: 10px;">PHIÊN ÂM PINYIN</div>
+      <div style="font-size: 18px; line-height: 1.8; color: var(--gold); padding: 12px 16px; background: var(--gold-bg); border: 1px solid var(--gold-lt); border-radius: var(--r); white-space: pre-wrap; word-break: break-word;">${escapeHtml(joinedPinyin || 'Chưa rõ')}</div>
+    </div>`;
+
+  // 3. Vietnamese meaning block aligned to the same line breaks as the Chinese OCR output
+  html += `
+    <div style="margin-bottom: 16px;">
+      <div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--blue); margin-bottom: 10px;">DỊCH NGHĨA TIẾNG VIỆT</div>
+      <div style="font-size: 16px; line-height: 1.8; color: var(--blue); padding: 12px 16px; background: var(--blue-bg); border: 1px solid var(--blue-lt); border-radius: var(--r); white-space: pre-wrap; word-break: break-word;">${escapeHtml(joinedTranslation || 'Chưa rõ')}</div>
+    </div>`;
+
+  if (joinedTokenGlosses) {
+    html += `
+      <div style="margin-bottom: 16px;">
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text3); margin-bottom: 8px;">GIẢI NGHĨA TỪ TỪ</div>
+        <div style="font-size: 13px; line-height: 1.7; color: var(--text2); padding: 12px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r); white-space: pre-wrap; word-break: break-word;">${escapeHtml(joinedTokenGlosses)}</div>
+      </div>`;
+  }
+
+  html += `
+    <div style="margin-bottom: 4px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent);">THẺ TỪ VỰNG NHẬN DIỆN</div>
+        <div style="font-size: 12px; color: var(--text3);">Bấm vào thẻ để phát âm từng từ</div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+        ${tokenCards.map(item => `
+          <button type="button" onclick="speak('${escapeHtml(item.token).replace(/&#39;/g, "\\'")}')" style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:92px;min-height:118px;padding:10px 8px;background:var(--surface);border:1.5px solid var(--accent-lt);border-radius:16px;box-shadow:var(--shadow-sm);cursor:pointer;transition:all .15s;text-align:center;" onmouseover="this.style.transform='translateY(-2px)';this.style.borderColor='var(--accent)'" onmouseout="this.style.transform='none';this.style.borderColor='var(--accent-lt)'">
+            <span style="font-family:'Noto Serif SC',serif;font-size:28px;font-weight:700;color:var(--accent);line-height:1.05;">${escapeHtml(item.token)}</span>
+            <span style="font-size:12px;font-weight:700;color:var(--gold);margin-top:5px;line-height:1.15;">${escapeHtml(item.pinyin || 'Chưa rõ')}</span>
+            <span style="font-size:11px;color:var(--text2);margin-top:4px;line-height:1.25;word-break:break-word;">${escapeHtml(item.meaning || 'Chưa rõ')}</span>
+          </button>
+        `).join('')}
+      </div>
+    </div>`;
+
+  el.innerHTML = html;
+}
+
+function openCameraCapture() {
+  const wrap = document.getElementById('ocr-camera-wrap');
+  const video = document.getElementById('ocr-video');
+  if (!wrap || !video) return;
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(stream => {
+      ocrStream = stream;
+      video.srcObject = stream;
+      wrap.style.display = 'block';
+      const preview = document.getElementById('ocr-preview-wrap');
+      if (preview) preview.style.display = 'none';
+    })
+    .catch(err => {
+      console.error('Camera error:', err);
+      showToast('Không thể truy cập camera. Vui lòng cấp quyền hoặc dùng chức năng chọn ảnh.');
+    });
+}
+
+function captureFromCamera() {
+  const video = document.getElementById('ocr-video');
+  const canvas = document.getElementById('ocr-canvas');
+  const wrap = document.getElementById('ocr-camera-wrap');
+  if (!video || !canvas) return;
+
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+
+  const dataUrl = canvas.toDataURL('image/png');
+  const img = document.getElementById('ocr-preview-img');
+  if (img) img.src = dataUrl;
+  const preview = document.getElementById('ocr-preview-wrap');
+  if (preview) preview.style.display = 'block';
+
+  stopCamera();
+  if (wrap) wrap.style.display = 'none';
+}
+
+function stopCamera() {
+  if (ocrStream) {
+    ocrStream.getTracks().forEach(t => t.stop());
+    ocrStream = null;
+  }
+  const video = document.getElementById('ocr-video');
+  if (video) video.srcObject = null;
+  const wrap = document.getElementById('ocr-camera-wrap');
+  if (wrap) wrap.style.display = 'none';
 }
 

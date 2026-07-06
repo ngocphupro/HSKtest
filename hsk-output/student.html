@@ -198,6 +198,7 @@
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button class="btn-primary" id="vocab-quiz-btn">📝 Làm trắc nghiệm</button>
             <button class="btn-primary" id="writing-practice-btn" style="background:var(--blue); box-shadow:none;" onclick="startWritingPractice()">✍️ Luyện chữ</button>
+            <button class="btn-primary" id="ocr-scan-btn" style="background:var(--accent); box-shadow:none;" onclick="openOcrModal()">📷 Nhận diện từ ảnh</button>
           </div>
         </div>
       </div>
@@ -208,6 +209,7 @@
         </div>
         <select id="filter-vocab-level" style="width:110px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--surface);color:var(--text);outline:none;">
           <option value="">Mọi cấp độ</option>
+          <option value="0">HSK New</option>
           <option value="1">HSK 1</option>
           <option value="2">HSK 2</option>
           <option value="3">HSK 3</option>
@@ -412,6 +414,108 @@
 
 <div id="toast-msg"></div>
 
+<!-- ══════ OCR IMAGE RECOGNITION OVERLAY ══════ -->
+<div class="modal-overlay" id="modal-ocr" style="z-index:3000;">
+  <div class="modal" style="max-width:600px; padding:0; display:flex; flex-direction:column; max-height:90vh; overflow:hidden;">
+    <!-- Header (Sticky) -->
+    <div style="padding:18px 24px; border-bottom:1px solid var(--border); background:linear-gradient(135deg, var(--accent-bg), var(--surface)); flex-shrink:0;">
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <div style="width:42px;height:42px;background:var(--accent);border-radius:var(--r-sm);display:flex;align-items:center;justify-content:center;font-size:20px;">📷</div>
+          <div>
+            <h3 style="margin:0;font-family:'DM Serif Display',serif;font-size:18px;color:var(--text);">Nhận diện chữ Hán từ ảnh</h3>
+            <p style="font-size:12px;color:var(--text3);margin:2px 0 0;">Upload ảnh hoặc dán ảnh chụp màn hình để dịch & tra từ</p>
+          </div>
+        </div>
+        <button class="btn-ghost btn-sm" onclick="closeOcrModal()">✕</button>
+      </div>
+    </div>
+
+    <!-- Scrollable Body -->
+    <div style="padding:20px 24px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:16px;">
+      <!-- Upload Zone -->
+      <div id="ocr-drop-zone" class="ocr-drop-zone" onclick="document.getElementById('ocr-file-input').click()">
+        <div class="ocr-drop-icon">🖼️</div>
+        <div class="ocr-drop-text">Nhấn để chọn ảnh hoặc kéo thả vào đây</div>
+        <div class="ocr-drop-sub">Hỗ trợ JPG, PNG, GIF, WEBP</div>
+        <div style="margin-top:10px; display:inline-flex; align-items:center; gap:6px; background:rgba(61,107,79,0.12); border:1px solid var(--accent-lt); border-radius:99px; padding:4px 12px;">
+          <span style="font-size:13px;">⌨️</span>
+          <span style="font-size:12px; font-weight:700; color:var(--accent);">Ctrl + V</span>
+          <span style="font-size:11px; color:var(--text3);">để dán ảnh từ clipboard</span>
+        </div>
+        <input type="file" id="ocr-file-input" accept="image/*" style="display:none" onchange="handleOcrFile(this.files[0])">
+      </div>
+
+      <!-- Buttons row -->
+      <div style="display:flex; gap:8px;">
+        <button class="btn-ghost" style="flex:1; justify-content:center;" onclick="document.getElementById('ocr-file-input').click()">
+          🖼️ Chọn từ thư viện
+        </button>
+        <button class="btn-ghost" style="flex:1; justify-content:center;" onclick="openCameraCapture()">
+          📸 Chụp ảnh
+        </button>
+      </div>
+
+      <!-- Preview -->
+      <div id="ocr-preview-wrap" style="display:none; text-align:center;">
+        <div style="position:relative; display:inline-block; max-width:100%;">
+          <img id="ocr-preview-img" style="max-width:100%; max-height:260px; border-radius:var(--r); border:2px solid var(--border); object-fit:contain;" alt="Ảnh xem trước">
+          <button onclick="resetOcr()" style="position:absolute;top:6px;right:6px;background:rgba(26,23,20,0.6);color:#fff;border:none;border-radius:99px;width:26px;height:26px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;">✕</button>
+        </div>
+        <button class="btn-primary" style="margin-top:12px; width:100%; justify-content:center; padding:12px;" onclick="runOcr()" id="ocr-run-btn">
+          🔍 Nhận diện chữ Hán
+        </button>
+      </div>
+
+      <!-- Camera capture canvas (hidden) -->
+      <div id="ocr-camera-wrap" style="display:none;">
+        <video id="ocr-video" autoplay playsinline style="width:100%;border-radius:var(--r);border:2px solid var(--border);"></video>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button class="btn-primary" style="flex:1;justify-content:center;" onclick="captureFromCamera()">📸 Chụp</button>
+          <button class="btn-ghost" style="flex:1;justify-content:center;" onclick="stopCamera()">✕ Đóng camera</button>
+        </div>
+      </div>
+      <canvas id="ocr-canvas" style="display:none;"></canvas>
+
+      <!-- Progress -->
+      <div id="ocr-progress-wrap" style="display:none;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <div style="width:32px;height:32px;border:3px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+          <span id="ocr-status-text" style="font-size:14px;color:var(--text2);">Đang khởi động OCR...</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="ocr-progress-bar" style="width:0%; background:var(--accent);"></div></div>
+      </div>
+
+      <!-- Results Area -->
+      <div id="ocr-results" style="display:none;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ REPORT VOCAB MODAL ══════ -->
+<div class="modal-overlay" id="modal-report-vocab">
+  <div class="modal" style="max-width:450px;">
+    <h3>🚩 Báo cáo từ vựng sai</h3>
+    <p style="font-size:13px; color:var(--text2); margin-bottom:15px;">Ý kiến đóng góp của bạn giúp giáo viên hoàn thiện từ điển chính xác hơn.</p>
+    <input type="hidden" id="report-vocab-id" />
+    <div class="field">
+      <label>Từ vựng báo cáo</label>
+      <input type="text" id="report-vocab-display" readonly style="background:var(--surface2); width:100%; border:1px solid var(--border); padding:8px 12px; border-radius:var(--r-sm); font-size:14px; font-weight:600; color:var(--text2); outline:none;">
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Nội dung sai sót / Sửa đổi đề xuất</label>
+      <textarea id="report-vocab-content" rows="4" placeholder="Ví dụ: Sai phiên âm, nghĩa tiếng Việt chưa đúng, bản dịch đề xuất là..." style="width:100%; padding:12px; border:1px solid var(--border); border-radius:var(--r-sm); font-family:inherit; font-size:14px; outline:none; resize:none;"></textarea>
+    </div>
+    <div id="report-vocab-msg" class="msg" style="display:none; margin-bottom:10px;"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('modal-report-vocab')">Huỷ</button>
+      <button class="btn-primary" onclick="submitVocabReport()">Gửi báo cáo</button>
+    </div>
+  </div>
+</div>
+
+
+<script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="supabase.js"></script>
 <script src="student.js"></script>

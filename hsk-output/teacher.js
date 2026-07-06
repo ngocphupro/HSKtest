@@ -24,8 +24,10 @@ const AVATAR_COLORS = ['#C84B31', '#3D6B4F', '#2A5FA5', '#6B3FA0', '#C08830', '#
 function avatarColor(name) { let h = 0; for (let c of name) h = (h + c.charCodeAt(0)) % AVATAR_COLORS.length; return AVATAR_COLORS[h]; }
 function initials(name) { return name.trim().split(' ').slice(-2).map(w => w[0]).join('').toUpperCase().slice(0, 2); }
 function hskBadge(level) {
-  const map = { 1: 'badge-hsk1', 2: 'badge-hsk2', 3: 'badge-hsk3', 4: 'badge-hsk4', 5: 'badge-hsk5', 6: 'badge-hsk6' };
-  return `<span class="badge ${map[level] || 'badge-hsk1'}">HSK ${level}</span>`;
+  const map = { 1: 'badge-hsk1', 2: 'badge-hsk2', 3: 'badge-hsk3', 4: 'badge-hsk4', 5: 'badge-hsk5', 6: 'badge-hsk6', 0: 'badge-hsknew' };
+  const label = level === 0 ? 'New' : level;
+  const extraStyle = level === 0 ? ' style="background:#8c7ae6; color:#fff; border:1px solid #7158e2;"' : '';
+  return `<span class="badge ${map[level] || 'badge-hsk1'}"${extraStyle}>HSK ${label}</span>`;
 }
 function fmtDate(dt) { return dt ? new Date(dt).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'; }
 function fmtTime(s) {
@@ -758,20 +760,21 @@ function renderVocabTable(list) {
   let currentCat = null;
   el.innerHTML = sorted.map(v => {
     let groupRow = '';
-    const vLvl = v.hsk_level || 1;
+    const vLvl = v.hsk_level ?? 1;
     const vCat = v.category || 'Khác';
     
     if (vLvl !== currentLvl) {
       currentLvl = vLvl;
       currentCat = vCat;
-      groupRow = `<tr class="table-group-header-lvl"><td colspan="6">🏆 Cấp độ HSK ${currentLvl}</td></tr>
+      const lvlLabel = vLvl === 0 ? 'New' : vLvl;
+      groupRow = `<tr class="table-group-header-lvl"><td colspan="6">🏆 Cấp độ HSK ${lvlLabel}</td></tr>
                   <tr class="table-group-header"><td colspan="6">📁 Chủ đề: ${currentCat}</td></tr>`;
     } else if (vCat !== currentCat) {
       currentCat = vCat;
       groupRow = `<tr class="table-group-header"><td colspan="6">📁 Chủ đề: ${currentCat}</td></tr>`;
     }
     
-    const level = v.hsk_level || 1;
+    const level = v.hsk_level ?? 1;
     return `
       ${groupRow}
       <tr>
