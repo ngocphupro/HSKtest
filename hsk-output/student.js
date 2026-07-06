@@ -2723,33 +2723,6 @@ async function runOcr() {
       ? await Promise.all(ocrLines.map(buildOcrLineData))
       : [];
 
-    // Automatically translate and insert new words/characters not found in allVocab
-    const newChars = uniqueChars.filter(char => !allVocab.some(v => v.hanzi === char));
-    if (newChars.length > 0) {
-      if (statusText) statusText.textContent = `Đang dịch và bổ sung ${newChars.length} từ mới...`;
-      
-      const insertPromises = newChars.map(async (char) => {
-        const resTrans = await translateChinese(char);
-        try {
-          const { data: newV, error: err } = await sb.from('vocab').insert({
-            hanzi: char,
-            pinyin: resTrans.pinyin,
-            meaning: resTrans.translation,
-            hsk_level: 0,
-            category: 'Nhận diện ảnh'
-          }).select().single();
-          
-          if (!err && newV) {
-            allVocab.push(newV);
-          }
-        } catch (dbErr) {
-          console.error("Lỗi tự động thêm từ mới:", char, dbErr);
-        }
-      });
-      await Promise.all(insertPromises);
-      showToast(`✓ Đã tự động thêm ${newChars.length} từ mới vào HSK New!`);
-    }
-
     if (statusText) statusText.textContent = 'Đang dịch văn bản toàn văn...';
     if (progressBar) progressBar.style.width = '95%';
     const fullTranslation = await translateChinese(rawText);
